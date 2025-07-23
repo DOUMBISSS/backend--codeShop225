@@ -2,7 +2,7 @@ import express from 'express';
 import Database from './db/database.js';
 import bodyParser from 'body-parser';
 // import {routes} from "./routes/routes.js";
-import Product from './db/models/product.js';
+import Product from './db/models/Product.js';
 // import Cart from './db/models/cart.js';
 import cors from "cors";
 // import dotenv from 'dotenv'
@@ -25,7 +25,6 @@ import Admin from './db/models/Admin.js';
 import bcrypt from 'bcrypt';
 import jwt from "jsonwebtoken";
 // import { faker } from "@faker-js/faker";
-// import fetch from "node-fetch"; 
 import User from './db/models/users.js';
 // import upload from './upload.js';
 import  { uploadAdminImage } from './upload.js';
