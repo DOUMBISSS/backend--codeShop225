@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
-import Product from './db/models/product.js';
+import Product from './db/models/Product.js';
 import Admin from './db/models/Admin.js';
 
 const router = express.Router();
