@@ -1084,6 +1084,40 @@ app.get('/clients/statistiques', async (req, res) => {
   }
 });
 
+app.post('/email', async (req, res) => {
+  const { name, email, number, content } = req.body;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'email',
+      host:process.env.ADMIN_HOST,
+      port: 465,
+      auth: {
+        user: process.env.EMAIL_USER, // ton email
+        pass: process.env.EMAIL_PASS  // ton mot de passe d'application (pas celui de Gmail directement)
+      },
+      secure:true
+    });
+
+    const mailOptions = {
+      from: email,
+      to: 'infos@codeshop225.ci', // destinataire
+      subject: `📩 Nouveau message de ${name}`,
+      html: `
+        <h3>Nom : ${name}</h3>
+        <h4>Email : ${email}</h4>
+        <h4>Téléphone : ${number}</h4>
+        <p>${content}</p>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: 'Message envoyé avec succès !' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Échec de l’envoi du message.' });
+  }
+});
 
 //   const INITIAL_PRODUCTS = [
 //  // 🎮 PS5 - 6 jeux
