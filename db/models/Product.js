@@ -54,7 +54,12 @@ const productSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
     required: true
-  }
+  },
+  videoUrl:String,
+  nouveaute: {
+  type: Boolean,
+  default: false
+},
 }, { timestamps: true });
 
 export default mongoose.models.Product || mongoose.model('Product', productSchema);

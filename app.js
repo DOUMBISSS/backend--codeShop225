@@ -34,7 +34,8 @@ import server from './server.js'
 // import FormData from 'form-data';
 // import axios from "axios";
 import Comment from './db/models/comment.js';
-import { uploadFields } from './upload.js'
+import { uploadFields } from './upload.js';
+import News from './db/models/Newsletter.js';
 
 
 
@@ -440,7 +441,9 @@ app.post('/Newproducts',
         promotion = 0,                    // <-- nouveau champ (%)
         description, groupe, specifications,
         adminId,
-        stock = 0, disponible = true, poids = ''
+        stock = 0, disponible = true, poids = '',
+         videoUrl = '', // ✅ ajout ici,
+          nouveaute = true  // ✅ nouveau champ avec valeur par défaut
       } = req.body;
 
       /* ---------- 3.  Vérifications rapides --------- */
@@ -466,7 +469,9 @@ app.post('/Newproducts',
         // fournisseur,
         stock       : parseInt(stock, 10)   || 0,
         disponible  : (disponible === 'false' ? false : true),
-        poids
+        poids,
+         videoUrl, // ✅ ajout dans l'objet produit,
+          nouveaute   : (nouveaute === 'false' ? false : true)  // ✅ cast en booléen
       };
 
       /* ---------- 5.  Sauvegarde -------------------- */
@@ -1004,6 +1009,27 @@ app.delete('/commandes/:id', async (req, res) => {
   }
 });
 
+// ✅ Route PUT dédiée à l'annulation
+app.put('/annuler-commande/:id', async (req, res) => {
+  const commandeId = req.params.id;
+
+  try {
+    const updatedCommande = await Commandes.findByIdAndUpdate(
+      commandeId,
+      { status: 'annulé' },
+      { new: true }
+    );
+
+    if (!updatedCommande) {
+      return res.status(404).json({ message: 'Commande non trouvée.' });
+    }
+
+    res.json({ message: 'Commande annulée avec succès.', commande: updatedCommande });
+  } catch (err) {
+    console.error('Erreur lors de l’annulation :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
 /* ------------------------------------------------------------------ */
 /*  clients                               */
 /* ------------------------------------------------------------------ */
@@ -1116,6 +1142,77 @@ app.post('/email', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Échec de l’envoi du message.' });
+  }
+});
+
+
+// app.get('/newsletter', async (req, res) => {
+//   const { adminId } = req.query;
+
+//   if (!adminId) {
+//     return res.status(400).json({ message: "adminId requis." });
+//   }
+
+//   try {
+//     const emails = await News.find({ adminId }).sort({ createdAt: -1 });
+//     res.status(200).json(emails);
+//   } catch (err) {
+//     console.error('Erreur récupération emails :', err);
+//     res.status(500).json({ message: 'Erreur serveur.' });
+//   }
+// });
+app.get('/newsletter', async (req, res) => {
+  try {
+    const emails = await News.find().sort({ createdAt: -1 }); // ne pas filtrer .select()
+    res.status(200).json(emails);
+  } catch (err) {
+    console.error('Erreur récupération emails :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+
+app.post('/subscribe', async (req, res) => {
+  const { email, adminId } = req.body;
+
+  if (!email || !adminId) {
+    return res.status(400).json({ message: "Email et adminId sont requis." });
+  }
+
+  try {
+    const existing = await News.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ message: "Email déjà inscrit." });
+    }
+
+    const newsEntry = await News.create({ email, adminId });
+    res.status(201).json({ message: "Inscription réussie", newsEntry });
+  } catch (error) {
+    console.error("Erreur d'inscription :", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+app.delete('/newsletter/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const deleted = await News.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Email non trouvé." });
+    }
+    res.status(200).json({ message: "Email supprimé." });
+  } catch (err) {
+    console.error("Erreur suppression :", err);
+    res.status(500).json({ message: "Erreur serveur lors de la suppression." });
+  }
+});
+
+// GET /api/products/nouveautes
+app.get('/nouveautes', async (req, res) => {
+  try {
+    const produits = await Product.find({ nouveaute: true }).sort({ createdAt: -1 });
+    res.json(produits);
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 });
 
