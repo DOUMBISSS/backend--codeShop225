@@ -36,6 +36,9 @@ import server from './server.js'
 import Comment from './db/models/comment.js';
 import { uploadFields } from './upload.js';
 import News from './db/models/Newsletter.js';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+// import multer from 'multer';
 
 
 
@@ -60,19 +63,64 @@ const __dirname = path.dirname(__filename);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Configuration Multer pour enregistrer les fichiers dans /uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');  // dossier de destination (doit exister)
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     cb(null, 'uploads/');  // dossier de destination (doit exister)
+//   },
+//   filename: (req, file, cb) => {
+//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+//     const ext = path.extname(file.originalname);
+//     cb(null, uniqueSuffix + ext);
+//   }
+// });
+
+// const upload = multer({ storage });
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
+    return {
+      folder: 'codeshop_upload', // Dossier dans Cloudinary
+      resource_type: 'image',
+      format: ['jpg', 'png', 'jpeg', 'webp'], // ou 'png'
+      public_id: `${Date.now()}-${file.originalname}`
+    };
   },
-  filename: (req, file, cb) => {
-    // pour éviter conflits, on met timestamp + nom original
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, uniqueSuffix + ext);
-  }
 });
 
 const upload = multer({ storage });
+
+export async function deleteImageFromCloudinary(url) {
+  try {
+    // Ex: https://res.cloudinary.com/<cloud_name>/image/upload/v1234567890/folder/nom_image.jpg
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname; // ex: /ds3eogn8u/image/upload/v1234567890/folder/nom_image.jpg
+
+    // Extraire la partie après "/upload/"
+    const parts = pathname.split('/upload/');
+    if (parts.length < 2) {
+      console.error('URL Cloudinary invalide :', url);
+      return;
+    }
+
+    // Supprimer la version "v1234567890/"
+    let publicIdWithExt = parts[1];
+    publicIdWithExt = publicIdWithExt.replace(/^v\d+\//, '');
+
+    // Enlever l'extension
+    const publicId = publicIdWithExt.replace(/\.[^/.]+$/, '');
+
+    await cloudinary.v2.uploader.destroy(publicId);
+  } catch (err) {
+    console.error('Erreur suppression Cloudinary:', err);
+  }
+}
+
 
 const database = new Database();
 
@@ -423,73 +471,77 @@ app.get('/products/:id', async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
-app.post('/Newproducts',
-  upload.fields([
-    { name: 'img',    maxCount: 1 },
-    { name: 'images', maxCount: 5 },
-  ]),
-  async (req, res) => {
-    try {
-      /* ---------- 1.  Gestion des fichiers ---------- */
-      const mainImage       = req.files?.img?.[0]?.filename        || null;
-      const secondaryImages = req.files?.images?.map(f => f.filename) || [];
+app.post('/Newproducts', async (req, res) => {
+  try {
+    const {
+      title,
+      reference,
+      label,
+      categorie,
+      prixAchat,
+      prixVente,
+      price,
+      promotion = 0,
+      description,
+      groupe,
+      specifications,
+      adminId,
+      stock = 0,
+      disponible = true,
+      poids = '',
+      videoUrl = '',
+      nouveaute = true,
+      img,          // URL Cloudinary principale (string)
+      images = [],  // URLs Cloudinary secondaires (tableau de string)
+    } = req.body;
 
-      /* ---------- 2.  Destructuration du body ------- */
-      const {
-        title, reference, label, categorie,
-        prixAchat, prixVente, price,
-        promotion = 0,                    // <-- nouveau champ (%)
-        description, groupe, specifications,
-        adminId,
-        stock = 0, disponible = true, poids = '',
-         videoUrl = '', // ✅ ajout ici,
-          nouveaute = true  // ✅ nouveau champ avec valeur par défaut
-      } = req.body;
+    // Validation des champs obligatoires
+    if (!adminId) return res.status(400).json({ message: 'adminId requis' });
+    if (!img) return res.status(400).json({ message: 'Image principale (URL) requise' });
+    if (!title) return res.status(400).json({ message: 'Titre du produit requis' });
+    if (!categorie) return res.status(400).json({ message: 'Catégorie requise' });
+    if (!label) return res.status(400).json({ message: 'Marque requise' });
 
-      /* ---------- 3.  Vérifications rapides --------- */
-      if (!adminId)   return res.status(400).json({ message: 'adminId requis' });
-      if (!mainImage) return res.status(400).json({ message: 'Image principale requise' });
+    // Construction de l'objet produit à insérer
+    const productData = {
+      title,
+      reference,
+      label,
+      categorie,
+      prixAchat: parseFloat(prixAchat) || 0,
+      prixVente: parseFloat(prixVente) || 0,
+      price: parseFloat(price) || 0,
+      promotion: parseFloat(promotion) || 0,
+      description,
+      groupe,
+      specifications,
+      img,        // URL Cloudinary image principale
+      images,     // tableau URLs Cloudinary images secondaires
+      adminId,
+      stock: parseInt(stock, 10) || 0,
+      disponible: (disponible === 'false' || disponible === false) ? false : true,
+      poids,
+      videoUrl,
+      nouveaute: (nouveaute === 'false' || nouveaute === false) ? false : true,
+    };
 
-      /* ---------- 4.  Construction de l’objet ------- */
-      const productData = {
-        title,
-        reference,
-        label,
-        categorie,
-        prixAchat   : parseFloat(prixAchat) || 0,
-        prixVente   : parseFloat(prixVente) || 0,
-        price       : parseFloat(price)     || 0,
-        promotion   : parseFloat(promotion) || 0,  // 0 = pas de promo
-        description,
-        groupe,
-        specifications,
-        img         : mainImage,
-        images      : secondaryImages,
-        adminId,
-        // fournisseur,
-        stock       : parseInt(stock, 10)   || 0,
-        disponible  : (disponible === 'false' ? false : true),
-        poids,
-         videoUrl, // ✅ ajout dans l'objet produit,
-          nouveaute   : (nouveaute === 'false' ? false : true)  // ✅ cast en booléen
-      };
+    // Enregistrement dans la base
+    const savedProduct = await Product.create(productData);
 
-      /* ---------- 5.  Sauvegarde -------------------- */
-      const savedProduct = await Product.create(productData);
+    // Mise à jour de l'admin avec le produit créé
+    await Admin.findByIdAndUpdate(adminId, { $push: { products: savedProduct._id } });
 
-      /* ---------- 6.  Lien vers l’admin ------------- */
-      await Admin.findByIdAndUpdate(adminId, { $push: { products: savedProduct._id } });
+    // Réponse succès
+    res.status(201).json({
+      message: "Produit créé et lié à l'admin",
+      product: savedProduct,
+    });
 
-      res.status(201).json({
-        message: "Produit créé et lié à l'admin",
-        product: savedProduct,
-      });
-    } catch (err) {
-      console.error('Erreur lors de la création du produit :', err);
-      res.status(500).json({ message: "Erreur serveur lors de l'ajout du produit" });
-    }
+  } catch (err) {
+    console.error('Erreur lors de la création du produit :', err);
+    res.status(500).json({ message: "Erreur serveur lors de l'ajout du produit" });
   }
-);
+});
 /* ========== DETAIL PRODUIT ========== */
 app.get('/detailProduct/:id', async (req, res) => {
   try {
@@ -503,57 +555,59 @@ app.get('/detailProduct/:id', async (req, res) => {
   }
 });
 
-app.put('/products/:id', uploadFields, async (req, res) => {
+app.put('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     const produit = await Product.findById(id);
     if (!produit) return res.status(404).json({ message: 'Produit non trouvé.' });
 
-    /* ---------- 1.  Champs texte (dont promotion) ---------- */
     Object.assign(produit, {
       reference     : req.body.reference      ?? produit.reference,
       title         : req.body.title          ?? produit.title,
       description   : req.body.description    ?? produit.description,
-      price         : req.body.price          ?? produit.price,
-      promotion     : req.body.promotion      ?? produit.promotion,  // ⬅️ ajouté
+      price         : parseFloat(req.body.price) || produit.price,
+      promotion     : parseFloat(req.body.promotion) || produit.promotion,
       label         : req.body.label          ?? produit.label,
       categorie     : req.body.categorie      ?? produit.categorie,
       details       : req.body.details        ?? produit.details,
-      prixAchat     : req.body.prixAchat      ?? produit.prixAchat,
-      prixVente     : req.body.prixVente      ?? produit.prixVente,
+      prixAchat     : parseFloat(req.body.prixAchat) || produit.prixAchat,
+      prixVente     : parseFloat(req.body.prixVente) || produit.prixVente,
       groupe        : req.body.groupe         ?? produit.groupe,
       specifications: req.body.specifications ?? produit.specifications,
-      stock         : req.body.stock          ?? produit.stock,
+      stock         : parseInt(req.body.stock, 10) || produit.stock,
       disponible    : req.body.disponible === 'true' || req.body.disponible === true,
       poids         : req.body.poids          ?? produit.poids,
+      videoUrl      : req.body.videoUrl       ?? produit.videoUrl,
+      nouveaute     : req.body.nouveaute === 'true' || req.body.nouveaute === true,
     });
 
-    /* ---------- 2.  Image principale --------------- */
-    if (req.files?.img?.length) {
+    if (req.body.img && req.body.img !== produit.img) {
       if (produit.img) {
-        const old = path.join('uploads', produit.img);
-        if (fs.existsSync(old)) fs.unlinkSync(old);
+        await deleteImageFromCloudinary(produit.img);
       }
-      produit.img = req.files.img[0].filename;
+      produit.img = req.body.img;
     }
 
-    /* ---------- 3.  Images secondaires ------------- */
+    // Gestion images secondaires
     const keep = Array.isArray(req.body.existingImages)
-      ? req.body.existingImages
-      : req.body.existingImages ? [req.body.existingImages] : [];
+  ? req.body.existingImages
+  : req.body.existingImages ? [req.body.existingImages] : [];
 
-    produit.images
-      .filter((img) => !keep.includes(img))
-      .forEach((img) => {
-        const p = path.join('uploads', img);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      });
+const newImgs = Array.isArray(req.body.images)
+  ? req.body.images
+  : req.body.images ? [req.body.images] : [];
 
-    const newImgs = req.files?.images?.map((f) => f.filename) || [];
-    produit.images = [...keep, ...newImgs];
+for (const imgUrl of produit.images) {
+  if (!keep.includes(imgUrl)) {
+    await deleteImageFromCloudinary(imgUrl);
+  }
+}
+
+produit.images = [...keep, ...newImgs];
 
     await produit.save();
+
     res.json({ message: 'Produit mis à jour', produit });
   } catch (err) {
     console.error('Erreur MàJ produit :', err);
