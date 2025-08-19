@@ -60,6 +60,11 @@ const productSchema = new mongoose.Schema({
   type: Boolean,
   default: false
 },
+Model:{
+type:String
+},
+comments: {type: mongoose.Schema.Types.ObjectId,ref: 'Comment',
+  },
 }, { timestamps: true });
 
 export default mongoose.models.Product || mongoose.model('Product', productSchema);

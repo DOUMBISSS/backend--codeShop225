@@ -9,6 +9,7 @@ import Product from '../models/Product.js';
 import Admin from '../models/Admin.js';
 import User from '../models/users.js';
 import Comment from '../models/Comment.js';
+import { version } from 'os';
 // import { verifyJWT } from '../middlewares/auth.js'
 
 const router = express.Router();
@@ -69,8 +70,7 @@ router.get('/products/:id', async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
-router.post('/Newproducts',
-  upload.fields([
+router.post('/Newproducts',upload.fields([
     { name: 'img',    maxCount: 1 },
     { name: 'images', maxCount: 5 },
   ]),
@@ -113,7 +113,8 @@ router.post('/Newproducts',
         fournisseur,
         stock       : parseInt(stock, 10)   || 0,
         disponible  : (disponible === 'false' ? false : true),
-        poids
+        poids,
+        Model
       };
 
       /* ---------- 5.  Sauvegarde -------------------- */
@@ -158,7 +159,7 @@ router.put('/products/:id', uploadFields, async (req, res) => {
       title         : req.body.title          ?? produit.title,
       description   : req.body.description    ?? produit.description,
       price         : req.body.price          ?? produit.price,
-      promotion     : req.body.promotion      ?? produit.promotion,  // ⬅️ ajouté
+      promotion     : req.body.promotion      ?? produit.promotion,
       label         : req.body.label          ?? produit.label,
       categorie     : req.body.categorie      ?? produit.categorie,
       details       : req.body.details        ?? produit.details,
@@ -169,6 +170,7 @@ router.put('/products/:id', uploadFields, async (req, res) => {
       stock         : req.body.stock          ?? produit.stock,
       disponible    : req.body.disponible === 'true' || req.body.disponible === true,
       poids         : req.body.poids          ?? produit.poids,
+      Model         : req.body.Model          ?? produit.Model,
     });
 
     /* ---------- 2.  Image principale --------------- */

@@ -715,25 +715,46 @@ function verifyJWT(req, res, next) {
 /* ------------------------------------------------------------------ */
 /*  ROUTE  POST  /products/:id/comments                               */
 /* ------------------------------------------------------------------ */
-app.post('/products/:id/comments', verifyJWT, async (req, res) => {
-  try {
-    /* récupérer l’utilisateur afin d’afficher son nom */
-    const user = await User.findById(req.userId).lean();
-    if (!user) return res.status(404).json({ message: 'Utilisateur introuvable' });
 
-    /* création du commentaire */
-    const saved = await Comment.create({
-      product : req.params.id,
-      clients : user._id,                          // lien vers User
-      userName: `${user.name} ${user.surname || ''}`.trim(),
-      text    : req.body.text,
-      rating  : Number(req.body.rating) || 10
+app.get("products/:id/comments", async (req, res) => {
+  try {
+    const comments = await Comment.find({ product: req.params.id })
+      .populate("clients", "username"); // 🔹 ça va inclure username automatiquement
+
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+// POST /products/:id/comments
+app.post('/products/:id/comments', async (req, res) => {
+  try {
+    const { text, rating, userId } = req.body;
+    const productId = req.params.id;
+
+    if (!text || !userId) {
+      return res.status(400).json({ message: "Données manquantes." });
+    }
+
+    // Création du commentaire
+    const comment = new Comment({
+      product: productId,
+      clients: userId,
+      text,
+      rating: rating || 5,
     });
 
-    res.status(201).json(saved);
-  } catch (e) {
-    console.error('Erreur POST /comments :', e);
-    res.status(500).json({ message: 'Erreur serveur commentaires' });
+    await comment.save();
+
+    // Attacher le commentaire au produit (optionnel)
+    await Product.findByIdAndUpdate(productId, {
+      $push: { comments: comment._id },
+    });
+
+    res.status(201).json(comment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
   }
 });
 
@@ -1269,6 +1290,7 @@ app.get('/nouveautes', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
+
 
 //   const INITIAL_PRODUCTS = [
 //  // 🎮 PS5 - 6 jeux
