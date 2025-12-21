@@ -153,16 +153,19 @@ export const authMiddleware = async (req, res, next) => {
 };
 
 
-// 🔹 Configurer le transporteur SMTP
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === 'true', // true pour port 465
+  host: "mac42.winihost.com",
+  port: 465,
+  secure: true, // SSL
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    user: process.env.SMTP_USER, // infos@codeshop225.ci
+    pass: process.env.SMTP_PASS, // 🔴 vrai mot de passe email
+  },
+  tls: {
+    rejectUnauthorized: false,
   },
 });
+export default transporter;
 
 app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => {
   try {
@@ -1765,9 +1768,9 @@ app.post('/code/promo', async (req, res) => {
       const emails = users.map(u => u.email);
 
       const mailOptions = {
-        from: `"CodeShop225" <${process.env.SMTP_USER}>`,
-        to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
-        bcc: emails,
+        from: `"CodeShop225" <infos@codeshop225.ci>`,
+        to: "infos@codeshop225.ci", // safe
+        bcc: emails,               // clients
         subject: "🎉 Nouveau code promo disponible sur CodeShop225 !",
         html: `
         <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
