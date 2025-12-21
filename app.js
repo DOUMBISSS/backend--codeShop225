@@ -39,6 +39,11 @@ import News from './db/models/Newsletter.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 // import multer from 'multer';
+import PromoCode from './db/models/PromoCode.js';
+import cron from 'node-cron';
+import ArchiveArticle from './db/models/ArchiveArticle.js';
+import Message from './db/models/Message.js';
+import crypto from 'crypto';
 
 
 
@@ -121,11 +126,44 @@ export async function deleteImageFromCloudinary(url) {
   }
 }
 
-
 const database = new Database();
 
 Database.connect();
-// POST /user/register
+
+export const authMiddleware = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Token manquant" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Récupérer l'utilisateur depuis la DB
+    const user = await User.findById(decoded.id);
+    if (!user) return res.status(401).json({ message: "Utilisateur introuvable" });
+
+    req.user = user; // ✅ on ajoute user à la requête
+    next();
+  } catch (err) {
+    console.error(err);
+    return res.status(401).json({ message: "Token invalide" });
+  }
+};
+
+
+// 🔹 Configurer le transporteur SMTP
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: process.env.SMTP_SECURE === 'true', // true pour port 465
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
 app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => {
   try {
     console.log("Body reçu :", req.body);
@@ -156,6 +194,56 @@ app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => 
     });
 
     await newUser.save();
+
+    // 🔹 Préparer le mail de bienvenue
+    const mailOptions = {
+  from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+  to: email,
+  subject: "Bienvenue sur CodeShop225 ! 🎉",
+  html: `
+  <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 2rem; background: #f9fafb; color: #111827; border-radius: 1rem; box-shadow: 0 20px 50px rgba(0,0,0,0.1);">
+    
+    <!-- Header -->
+    <div style="text-align: center; padding-bottom: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+      <h1 style="margin: 0; font-size: 2.5rem; color: #667eea;">Bienvenue sur CodeShop225 ! 🎉</h1>
+      <p style="margin: 0.5rem 0 0; font-size: 1.1rem; color: #6b7280;">Votre aventure digitale commence ici</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 2rem 0; line-height: 1.6;">
+      <h2 style="margin: 0 0 1rem; font-size: 1.8rem; color: #111827;">Bonjour ${name} ${surname},</h2>
+      <p>Merci pour votre inscription sur <strong>CodeShop225</strong> ! Nous sommes ravis de vous compter parmi nos clients.</p>
+      <p>Vous pouvez dès à présent vous connecter et découvrir nos <strong>produits digitaux</strong> et nos <strong>promotions exclusives</strong>.</p>
+
+      <div style="text-align: center; margin: 2rem 0;">
+        <a href="https://codeshop225.com/login" style="background: linear-gradient(90deg, #667eea, #764ba2); color: #fff; text-decoration: none; padding: 1rem 2rem; border-radius: 1rem; font-weight: 700; font-size: 1.1rem; display: inline-block; box-shadow: 0 10px 20px rgba(102,126,234,0.3); transition: all 0.3s ease;">
+          Se connecter maintenant
+        </a>
+      </div>
+
+      <p style="margin: 2rem 0 0; font-size: 0.95rem; color: #6b7280;">
+        Si vous avez des questions ou besoin d'aide, notre équipe est là pour vous aider 24/7.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding-top: 1.5rem; border-top: 1px solid #e5e7eb; font-size: 0.9rem; color: #9ca3af;">
+      <p>— L'équipe CodeShop225</p>
+      <p style="margin: 0;">&copy; ${new Date().getFullYear()} CodeShop225. Tous droits réservés.</p>
+    </div>
+  </div>
+  `
+};
+
+    // 🔹 Envoyer le mail
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error("Erreur envoi email :", error);
+      } else {
+        console.log("Email envoyé :", info.response);
+      }
+    });
+
     res.status(201).json({ message: "Inscription réussie", user: newUser });
 
   } catch (err) {
@@ -174,7 +262,11 @@ app.post("/user/login", async (req, res) => {
     const isMatch = await user.comparePassword(password);
     if (!isMatch) return res.status(400).json({ message: "Email ou mot de passe invalide" });
 
-    const token = jwt.sign({ id: user._id }, "user_secret_key", { expiresIn: "2h" });
+    const token = jwt.sign(
+  { id: user._id },
+  process.env.JWT_SECRET, // ✅ OBLIGATOIRE
+  { expiresIn: "24h" }
+);
 
     const { _id, name, surname, address, ville, number, commandes } = user;
 
@@ -196,6 +288,163 @@ app.post("/user/login", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
+// 🔹 Route POST pour demander la réinitialisation
+app.post('/user/reset-password-request', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Veuillez fournir votre email.' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'Utilisateur introuvable.' });
+
+    // 🔹 Générer un token temporaire
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpire = Date.now() + 3600 * 1000; // 1h
+
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpire = resetTokenExpire;
+    await user.save();
+
+    // 🔹 Envoyer le mail avec le lien
+    const resetUrl = `https://codeshop225.ci/reset-password/${resetToken}`;
+
+  const mailOptions = {
+  from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+  to: email,
+  subject: "🔐 Réinitialisation de votre mot de passe – CodeShop225",
+  html: `
+  <div style="background:#f4f6fb; padding:40px 0; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+      
+      <!-- HEADER -->
+      <tr>
+        <td style="background:linear-gradient(135deg,#667eea,#764ba2); padding:30px; text-align:center;">
+          <h1 style="margin:0; font-size:26px; color:#ffffff; font-weight:700;">
+            CodeShop225
+          </h1>
+          <p style="margin:8px 0 0; color:#e0e4ff; font-size:14px;">
+            Plateforme de vente digitale sécurisée
+          </p>
+        </td>
+      </tr>
+
+      <!-- CONTENT -->
+      <tr>
+        <td style="padding:40px 35px;">
+          <h2 style="margin:0 0 15px; font-size:22px; color:#1f2937;">
+            Bonjour ${user.name},
+          </h2>
+
+          <p style="margin:0 0 18px; font-size:15px; color:#4b5563; line-height:1.7;">
+            Vous avez récemment demandé la <strong>réinitialisation de votre mot de passe</strong> pour votre compte CodeShop225.
+          </p>
+
+          <p style="margin:0 0 25px; font-size:15px; color:#4b5563; line-height:1.7;">
+            Cliquez sur le bouton ci-dessous pour définir un nouveau mot de passe sécurisé :
+          </p>
+
+          <!-- CTA BUTTON -->
+          <div style="text-align:center; margin:35px 0;">
+            <a href="${resetUrl}"
+               style="
+                 display:inline-block;
+                 padding:14px 34px;
+                 background:#667eea;
+                 color:#ffffff;
+                 font-size:15px;
+                 font-weight:600;
+                 text-decoration:none;
+                 border-radius:10px;
+               ">
+              🔐 Réinitialiser mon mot de passe
+            </a>
+          </div>
+
+          <p style="margin:0 0 20px; font-size:14px; color:#6b7280; line-height:1.6;">
+            ⏱️ Ce lien est valable pendant <strong>1 heure</strong> pour des raisons de sécurité.
+          </p>
+
+          <p style="margin:0; font-size:14px; color:#6b7280; line-height:1.6;">
+            Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer cet email en toute sécurité.
+          </p>
+        </td>
+      </tr>
+
+      <!-- FOOTER -->
+      <tr>
+        <td style="background:#f9fafb; padding:25px; text-align:center;">
+          <p style="margin:0 0 8px; font-size:13px; color:#9ca3af;">
+            Besoin d’aide ? Contactez-nous à tout moment.
+          </p>
+          <p style="margin:0; font-size:13px; color:#9ca3af;">
+            © ${new Date().getFullYear()} CodeShop225 — Tous droits réservés
+          </p>
+        </td>
+      </tr>
+
+    </table>
+
+    <!-- FOOT NOTE -->
+    <p style="text-align:center; margin-top:25px; font-size:12px; color:#9ca3af;">
+      Cet email vous a été envoyé automatiquement, merci de ne pas y répondre.
+    </p>
+
+  </div>
+  `,
+};
+
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).json({ message: 'Lien de réinitialisation envoyé à votre email.' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+app.post("/user/reset-password/:token", async (req, res) => {
+  try {
+    const { password, password2 } = req.body;
+
+    if (!password || !password2) {
+      return res.status(400).json({ message: "Champs requis manquants" });
+    }
+
+    if (password !== password2) {
+      return res.status(400).json({ message: "Les mots de passe ne correspondent pas" });
+    }
+
+    // 🔹 récupérer le token depuis l'URL
+    const { token } = req.params;
+
+    // 🔹 chercher l'utilisateur avec token valide
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpire: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Token invalide ou expiré" });
+    }
+
+    // ✅ ICI EXACTEMENT ⬇️⬇️⬇️
+    user.password = password;           // ⬅️ le pre('save') va hasher
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+
+    await user.save();
+    // ✅ FIN
+
+    res.status(200).json({ message: "Mot de passe réinitialisé avec succès" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+
 app.put('/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -480,7 +729,6 @@ app.post('/Newproducts', async (req, res) => {
       categorie,
       prixAchat,
       prixVente,
-      price,
       promotion = 0,
       description,
       groupe,
@@ -492,7 +740,7 @@ app.post('/Newproducts', async (req, res) => {
       videoUrl = '',
       nouveaute = true,
       img,          // URL Cloudinary principale (string)
-      images = [],  // URLs Cloudinary secondaires (tableau de string)
+      images = [],  // URLs Cloudinary secondaires
     } = req.body;
 
     // Validation des champs obligatoires
@@ -502,7 +750,14 @@ app.post('/Newproducts', async (req, res) => {
     if (!categorie) return res.status(400).json({ message: 'Catégorie requise' });
     if (!label) return res.status(400).json({ message: 'Marque requise' });
 
-    // Construction de l'objet produit à insérer
+    // Calcul du prix final avec promotion
+    let finalPrice = parseFloat(prixVente) || parseFloat(req.body.price) || 0;
+    const promoValue = parseFloat(promotion) || 0;
+    if (promoValue > 0) {
+      finalPrice = finalPrice - (finalPrice * promoValue / 100);
+    }
+
+    // Construction de l'objet produit
     const productData = {
       title,
       reference,
@@ -510,13 +765,13 @@ app.post('/Newproducts', async (req, res) => {
       categorie,
       prixAchat: parseFloat(prixAchat) || 0,
       prixVente: parseFloat(prixVente) || 0,
-      price: parseFloat(price) || 0,
-      promotion: parseFloat(promotion) || 0,
+      price: finalPrice,    // prix final après promotion
+      promotion: promoValue,
       description,
       groupe,
       specifications,
-      img,        // URL Cloudinary image principale
-      images,     // tableau URLs Cloudinary images secondaires
+      img,
+      images,
       adminId,
       stock: parseInt(stock, 10) || 0,
       disponible: (disponible === 'false' || disponible === false) ? false : true,
@@ -525,13 +780,11 @@ app.post('/Newproducts', async (req, res) => {
       nouveaute: (nouveaute === 'false' || nouveaute === false) ? false : true,
     };
 
-    // Enregistrement dans la base
     const savedProduct = await Product.create(productData);
 
-    // Mise à jour de l'admin avec le produit créé
+    // Ajouter le produit à l'admin
     await Admin.findByIdAndUpdate(adminId, { $push: { products: savedProduct._id } });
 
-    // Réponse succès
     res.status(201).json({
       message: "Produit créé et lié à l'admin",
       product: savedProduct,
@@ -557,60 +810,51 @@ app.get('/detailProduct/:id', async (req, res) => {
 
 app.put('/products/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    const produit = await Product.findById(req.params.id);
+    if (!produit) return res.status(404).json({ message: 'Produit non trouvé' });
 
-    const produit = await Product.findById(id);
-    if (!produit) return res.status(404).json({ message: 'Produit non trouvé.' });
+    const prixVente = Number(req.body.prixVente) ?? produit.prixVente ?? 0;
+    const promotion = Number(req.body.promotion) ?? 0;
+    const prixAchat = Number(req.body.prixAchat) ?? produit.prixAchat ?? 0;
+    const prixFinalManuel = Number(req.body.price); // optionnel pour forcer le prix final
 
+    // Mettre à jour les champs généraux
     Object.assign(produit, {
-      reference     : req.body.reference      ?? produit.reference,
-      title         : req.body.title          ?? produit.title,
-      description   : req.body.description    ?? produit.description,
-      price         : parseFloat(req.body.price) || produit.price,
-      promotion     : parseFloat(req.body.promotion) || produit.promotion,
-      label         : req.body.label          ?? produit.label,
-      categorie     : req.body.categorie      ?? produit.categorie,
-      details       : req.body.details        ?? produit.details,
-      prixAchat     : parseFloat(req.body.prixAchat) || produit.prixAchat,
-      prixVente     : parseFloat(req.body.prixVente) || produit.prixVente,
-      groupe        : req.body.groupe         ?? produit.groupe,
-      specifications: req.body.specifications ?? produit.specifications,
-      stock         : parseInt(req.body.stock, 10) || produit.stock,
-      disponible    : req.body.disponible === 'true' || req.body.disponible === true,
-      poids         : req.body.poids          ?? produit.poids,
-      videoUrl      : req.body.videoUrl       ?? produit.videoUrl,
-      nouveaute     : req.body.nouveaute === 'true' || req.body.nouveaute === true,
+      reference: req.body.reference ?? produit.reference,
+      title: req.body.title ?? produit.title,
+      description: req.body.description ?? produit.description,
+      label: req.body.label ?? produit.label,
+      categorie: req.body.categorie ?? produit.categorie,
+      groupe: req.body.groupe ?? produit.groupe,
+      videoUrl: req.body.videoUrl ?? produit.videoUrl,
+      stock: req.body.stock !== undefined ? Number(req.body.stock) : produit.stock,
+      disponible: req.body.disponible !== undefined ? req.body.disponible : produit.disponible,
+      nouveaute: req.body.nouveaute !== undefined ? req.body.nouveaute : produit.nouveaute,
+      prixVente,
+      prixAchat,
+      promotion
     });
 
-    if (req.body.img && req.body.img !== produit.img) {
-      if (produit.img) {
-        await deleteImageFromCloudinary(produit.img);
-      }
-      produit.img = req.body.img;
+    // ⚡ Gestion prix original et prix final
+    // Si prixOriginal n'existe pas, on le définit une seule fois comme prix réel de base
+    if (!produit.prixOriginal) {
+      produit.prixOriginal = prixVente;
     }
 
-    // Gestion images secondaires
-    const keep = Array.isArray(req.body.existingImages)
-  ? req.body.existingImages
-  : req.body.existingImages ? [req.body.existingImages] : [];
-
-const newImgs = Array.isArray(req.body.images)
-  ? req.body.images
-  : req.body.images ? [req.body.images] : [];
-
-for (const imgUrl of produit.images) {
-  if (!keep.includes(imgUrl)) {
-    await deleteImageFromCloudinary(imgUrl);
-  }
-}
-
-produit.images = [...keep, ...newImgs];
+    if (promotion > 0) {
+      // Appliquer promo sur le prix original
+      produit.price = Math.round(produit.prixOriginal - (produit.prixOriginal * promotion / 100));
+    } else {
+      // Promo = 0 → prixFinal = prixVente ou prixFinalManuel
+      produit.price = prixFinalManuel ?? prixVente;
+      // Ne jamais écraser prixOriginal, on garde toujours le prix réel de base
+    }
 
     await produit.save();
-
     res.json({ message: 'Produit mis à jour', produit });
+
   } catch (err) {
-    console.error('Erreur MàJ produit :', err);
+    console.error(err);
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
@@ -825,11 +1069,29 @@ app.delete('/products/:id/images/:filename', async (req, res) => {
 /*  commandes                              */
 /* ------------------------------------------------------------------ */
 
+// Toutes les 12h
+// ⏰ Toutes les 12 heures
+cron.schedule("0 */12 * * *", async () => {
+  try {
+    const now = new Date();
+
+    const result = await Commandes.deleteMany({
+      paymentStatus: "non payé",
+      status: { $in: ["en attente", "à livrer"] },
+      deadline: { $lt: now }
+    });
+
+    console.log(`🗑️ Commandes non payées supprimées : ${result.deletedCount}`);
+  } catch (err) {
+    console.error("❌ Erreur suppression commandes expirées :", err);
+  }
+});
+
 app.get('/commandes', async (req, res) => {
   try {
     const { adminId } = req.query;
 
-    /* filtre facultatif sur l’admin -------------------------------- */
+    // Filtre facultatif sur l’admin
     const filter = {};
     if (adminId) {
       if (!mongoose.Types.ObjectId.isValid(adminId)) {
@@ -838,17 +1100,28 @@ app.get('/commandes', async (req, res) => {
       filter.adminId = adminId;
     }
 
-    /* récupération + population client ----------------------------- */
+    // Récupération des commandes avec prixAchat des produits
     const commandes = await Commandes.find(filter)
       .sort({ createdAt: -1 })
-      /* on n’expose que les champs utiles du client : */
       .populate('client', 'name surname email number address ville')
-      /* (optionnel) on peut aussi peupler les produits si besoin :
-         .populate('cart.productId', 'title img price')
-       */
+      .populate({
+        path: 'cart.productId',
+        select: 'title prixAchat price'  // récupère uniquement le titre, prix d'achat et prix de vente
+      })
       .lean();
 
-    res.json(commandes);
+    // Ajouter le prixAchat dans chaque item du panier pour la réponse
+    const commandesAvecPrixAchat = commandes.map(commande => {
+      const cart = commande.cart.map(item => ({
+        ...item,
+        prixAchat: item.productId?.prixAchat || 0, // si produit supprimé, 0 par défaut
+        productTitle: item.productId?.title || item.title,
+        productPrice: item.productId?.price || item.price
+      }));
+      return { ...commande, cart };
+    });
+
+    res.json(commandesAvecPrixAchat);
   } catch (err) {
     console.error('Erreur récupération commandes :', err);
     res.status(500).json({ message: 'Erreur serveur' });
@@ -924,75 +1197,313 @@ app.get('/commandes/:id', async (req, res) => {
 });
 
 
-app.post('/commandes', async (req, res) => {
+// export async function updateCommandes() {
+//   try {
+
+//     // Récupérer toutes les commandes
+//     const commandes = await Commandes.find({});
+//     console.log(`Nombre de commandes à traiter : ${commandes.length}`);
+
+//     for (const commande of commandes) {
+//       let updated = false;
+//       let totalMarge = 0;
+
+//       // Mettre à jour chaque produit dans le panier
+//       for (const item of commande.cart) {
+//         // Si prixAchat déjà présent, on ne touche pas
+//         if (item.prixAchat === undefined || item.prixAchat === null) {
+//           const produit = await Product.findById(item.productId);
+//           if (!produit) {
+//             console.warn(`Produit introuvable pour item ${item.title} (${item.productId})`);
+//             continue;
+//           }
+
+//           // Ajouter prixAchat et calculer marge
+//           item.prixAchat = produit.prixAchat || 0;
+//           item.marge = (item.price - item.prixAchat) * item.quantity;
+
+//           updated = true;
+//         }
+
+//         // Ajouter à totalMarge
+//         totalMarge += item.marge || 0;
+//       }
+
+//       // Mettre à jour la marge globale si modification
+//       if (updated) {
+//         commande.totalMarge = totalMarge;
+//         await commande.save();
+//         console.log(`Commande ${commande.numeroCommande} mise à jour.`);
+//       }
+//     }
+
+//     console.log("✅ Mise à jour terminée pour toutes les commandes existantes.");
+//     process.exit(0);
+//   } catch (err) {
+//     console.error("Erreur lors de la mise à jour des commandes :", err);
+//     process.exit(1);
+//   }
+// }
+
+// updateCommandes();
+
+
+/* ==============================
+   📦 CRÉATION COMMANDE
+================================ */
+app.post("/commandes", authMiddleware, async (req, res) => {
   try {
-    /* ---------- 1. Données reçues ---------- */
-    const {
-      client,               // ObjectId du user
-      cart,                 // [{ productId, quantity, … }]
-      totalAmount,
-      paymentStatus,
-      status,
-      address,              // adresse du profil (toujours envoyée)
-      ville,                // ville du profil
-      livraisonAlt          // { address, ville }  ⇐  facultatif
-    } = req.body;
+    const { cart, address, ville, livraisonAlt, promoCode } = req.body;
+    const client = req.user._id;
 
-    if (!Array.isArray(cart) || cart.length === 0) {
-      return res.status(400).json({ message: 'Le panier ne peut pas être vide.' });
-    }
+    if (!Array.isArray(cart) || cart.length === 0)
+      return res.status(400).json({ message: "Le panier ne peut pas être vide." });
 
-    /* ---------- 2. Contrôle de stock ---------- */
+    let totalAmount = 0;
+    let totalCost = 0;
+    const preparedCart = [];
+
     for (const item of cart) {
-      const produit = await Product.findById(item.productId);
-      if (!produit) {
-        return res.status(404).json({ message: `Produit introuvable : ${item.productId}` });
-      }
-      if (produit.stock < item.quantity) {
-        return res.status(400).json({
-          message: `Stock insuffisant pour "${produit.title}". Restant : ${produit.stock}, demandé : ${item.quantity}`
-        });
-      }
+     const produit = await Product.findById(item.productId);
+if (!produit) {
+  console.error("Produit introuvable, ID:", item.productId);
+  return res.status(404).json({ message: `Produit introuvable (ID: ${item.productId})` });
+}
+      if (produit.stock < item.quantity)
+        return res.status(400).json({ message: `Stock insuffisant pour ${produit.title}` });
+
+      totalAmount += produit.price * item.quantity;
+      totalCost += (produit.prixAchat || 0) * item.quantity;
+
+      preparedCart.push({
+        productId: produit._id,
+        title: produit.title,
+        reference: produit.reference || "",
+        quantity: item.quantity,
+        price: produit.price,
+        img: produit.img,
+        prixAchat: produit.prixAchat || 0,
+        marge: (produit.price - (produit.prixAchat || 0)) * item.quantity
+      });
     }
 
-    /* ---------- 3. Admin à partir du 1er produit ---------- */
+    // 🎁 Gestion code promo
+    let discountAmount = 0;
+    let appliedPromo = null;
+
+    if (promoCode) {
+      const promo = await PromoCode.findOne({ code: promoCode.toUpperCase() });
+      if (!promo) return res.status(400).json({ message: "Code promo invalide" });
+      if (new Date(promo.expiresAt) < new Date())
+        return res.status(400).json({ message: "Ce code promo est expiré" });
+      if (promo.usedBy.includes(client))
+        return res.status(400).json({ message: "Vous avez déjà utilisé ce code promo" });
+      if (promo.minAmount && totalAmount < promo.minAmount)
+        return res.status(400).json({ message: `Montant minimum requis : ${promo.minAmount}` });
+
+      discountAmount =
+        promo.type === "percentage"
+          ? Math.floor((promo.value / 100) * totalAmount)
+          : promo.value;
+
+      appliedPromo = promo;
+      promo.usedBy.push(client);
+      await promo.save();
+    }
+
+    const finalTotal = Math.max(totalAmount - discountAmount, 0);
+    const totalMarge = totalAmount - totalCost - discountAmount;
+
     const firstProduct = await Product.findById(cart[0].productId);
-    const adminId = firstProduct?.adminId;
-    if (!adminId) {
-      return res.status(400).json({ message: "Admin introuvable à partir du produit." });
-    }
+    const adminId = firstProduct.adminId;
 
-    /* ---------- 4. Création de la commande ---------- */
     const newCommande = await Commandes.create({
       client,
-      cart,
-      totalAmount,
-      paymentStatus,
-      status,
       adminId,
-      address,          // adresse du profil
+      cart: preparedCart,
+      address,
       ville,
-      livraisonAlt: livraisonAlt?.address            // on n’enregistre que si l’utilisateur
-        ? {                                            // a réellement saisi une nouvelle
-            address: livraisonAlt.address.trim(),      // adresse OU ville
-            ville  : livraisonAlt.ville?.trim() || ''
-          }
-        : undefined
+      livraisonAlt,
+      totalAmount: finalTotal,
+      discountAmount,
+      promoCode: appliedPromo?.code || null,
+      totalMarge,
     });
 
-    /* ---------- 5. Décrémentation du stock ---------- */
+    // 📉 Décrément stock
     await Promise.all(
-      cart.map(it =>
-        Product.findByIdAndUpdate(it.productId, { $inc: { stock: -it.quantity } })
+      preparedCart.map(p =>
+        Product.findByIdAndUpdate(p.productId, { $inc: { stock: -p.quantity } })
       )
     );
 
-    return res.status(201).json(newCommande);
-  } catch (error) {
-    console.error('Erreur lors de la commande :', error);
-    return res.status(500).json({ message: 'Erreur serveur' });
+    // ============================
+    // 📧 EMAIL CLIENT
+    // ============================
+    const user = await User.findById(client);
+
+    const cartRows = preparedCart.map(item => `
+      <tr>
+        <td style="padding:10px 0;">${item.title} - ${item.reference}</td>
+        <td align="center">${item.quantity}</td>
+        <td align="right">${item.price.toLocaleString()} FCFA</td>
+        <td align="right">${(item.price * item.quantity).toLocaleString()} FCFA</td>
+      </tr>
+    `).join("");
+
+    const mailOptions = {
+      from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+      to: user.email,
+      subject: "🛒 Confirmation de votre commande – CodeShop225",
+      html: `
+      <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
+        <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
+          
+          <tr>
+            <td style="background:linear-gradient(135deg,#667eea,#764ba2);padding:30px;text-align:center;color:#fff">
+              <h1 style="margin:0">CodeShop225</h1>
+              <p>Merci pour votre commande 🎉</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:35px">
+              <h2>Bonjour ${user.name},</h2>
+              <p>Votre commande a bien été enregistrée.</p>
+
+              <table width="100%" style="margin-top:20px;border-collapse:collapse">
+                <thead>
+                  <tr style="border-bottom:2px solid #e5e7eb">
+                    <th align="left">Produit</th>
+                    <th align="center">Qté</th>
+                    <th align="right">Prix</th>
+                    <th align="right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>${cartRows}</tbody>
+              </table>
+
+              <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:15px">
+                ${discountAmount > 0 ? `<p>Remise : -${discountAmount.toLocaleString()} FCFA</p>` : ""}
+                <h3>Montant total : ${finalTotal.toLocaleString()} FCFA</h3>
+              </div>
+
+              <p style="margin-top:15px">📍 Livraison : ${address}, ${ville}</p>
+
+              <p style="margin-top:25px;color:#6b7280">
+                Merci pour votre confiance 🙏<br/>
+                <strong>L’équipe CodeShop225</strong>
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+              © ${new Date().getFullYear()} CodeShop225
+            </td>
+          </tr>
+        </table>
+      </div>
+      `
+    };
+
+    transporter.sendMail(mailOptions).catch(err =>
+      console.error("Erreur email commande :", err)
+    );
+
+    // ============================
+    res.status(201).json(newCommande);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
   }
 });
+///tyui
+// app.post('/commandes', async (req, res) => {
+//   try {
+//     /* ---------- 1. Données reçues ---------- */
+//     const {
+//       client,               
+//       cart,                 // [{ productId, quantity, … }]
+//       totalAmount,
+//       paymentStatus,
+//       status,
+//       address,
+//       ville,
+//       livraisonAlt
+//     } = req.body;
+
+//     if (!Array.isArray(cart) || cart.length === 0) {
+//       return res.status(400).json({ message: 'Le panier ne peut pas être vide.' });
+//     }
+
+//     /* ---------- 2. Vérification du stock et enrichissement ---------- */
+//     const enrichedCart = [];
+//     for (const item of cart) {
+//       const produit = await Product.findById(item.productId);
+//       if (!produit) {
+//         return res.status(404).json({ message: `Produit introuvable : ${item.productId}` });
+//       }
+
+//       if (produit.stock < item.quantity) {
+//         return res.status(400).json({
+//           message: `Stock insuffisant pour "${produit.title}". Restant : ${produit.stock}, demandé : ${item.quantity}`
+//         });
+//       }
+
+//       // Ajout du produit enrichi avec prix d’achat et infos utiles
+//       enrichedCart.push({
+//         productId: produit._id,
+//         title: produit.title,
+//         reference: produit.reference,
+//         img: produit.img,
+//         price: produit.price,          // prix de vente
+//         prixAchat: produit.prixAchat,  // ✅ prix d’achat
+//         quantity: item.quantity,
+//       });
+//     }
+
+//     /* ---------- 3. Admin à partir du 1er produit ---------- */
+//     const adminId = enrichedCart[0]?.productId
+//       ? (await Product.findById(enrichedCart[0].productId)).adminId
+//       : null;
+
+//     if (!adminId) {
+//       return res.status(400).json({ message: "Admin introuvable à partir du produit." });
+//     }
+
+//     /* ---------- 4. Création de la commande ---------- */
+//     const newCommande = await Commandes.create({
+//       client,
+//       cart: enrichedCart, // ✅ cart enrichi avec prixAchat
+//       totalAmount,
+//       paymentStatus,
+//       status,
+//       adminId,
+//       address,
+//       ville,
+//       livraisonAlt: livraisonAlt?.address
+//         ? {
+//             address: livraisonAlt.address.trim(),
+//             ville: livraisonAlt.ville?.trim() || ''
+//           }
+//         : undefined
+//     });
+
+//     /* ---------- 5. Décrémentation du stock ---------- */
+//     await Promise.all(
+//       enrichedCart.map(it =>
+//         Product.findByIdAndUpdate(it.productId, { $inc: { stock: -it.quantity } })
+//       )
+//     );
+
+//     return res.status(201).json(newCommande);
+//   } catch (error) {
+//     console.error('Erreur lors de la commande :', error);
+//     return res.status(500).json({ message: 'Erreur serveur' });
+//   }
+// });
                       // Mise à jour du statut d'une commande
 // Mettre à jour le statut général de la commande (ex: en cours, livrée, annulée)
 // Modifier le statut de livraison de la commande
@@ -1105,6 +1616,405 @@ app.put('/annuler-commande/:id', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur.' });
   }
 });
+
+
+// POST /promo/apply
+app.post("/apply", async (req, res) => {
+  const { code, userId, total } = req.body;
+
+  try {
+    const promo = await PromoCode.findOne({ code: code.toUpperCase() });
+
+    if (!promo) return res.status(404).json({ error: "Code promo invalide" });
+
+    // Expiration
+    if (promo.expiresAt < new Date()) {
+      return res.status(400).json({ error: "Code expiré" });
+    }
+
+    // Déjà utilisé par cet utilisateur ?
+    if (promo.usedBy.includes(userId)) {
+      return res.status(400).json({ error: "Ce code a déjà été utilisé" });
+    }
+
+    // Utilisation maximale atteinte ?
+    if (promo.usedCount >= promo.maxUsage) {
+      return res.status(400).json({ error: "Ce code n'est plus disponible" });
+    }
+
+    // Condition de montant minimum
+    if (total < promo.minAmount) {
+      return res.status(400).json({ error: `Montant minimum ${promo.minAmount} FCFA` });
+    }
+
+    // Calcul réduction
+    let discount = 0;
+    if (promo.type === "percentage") {
+      discount = (promo.value / 100) * total;
+    } else {
+      discount = promo.value;
+    }
+
+    return res.json({
+      success: true,
+      discount,
+      newTotal: total - discount
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+
+
+/* ----------------------
+   GET /promos
+   Récupère tous les promos (optionnel: query ?status=active|expired)
+   ---------------------- */
+app.get('/promos', async (req, res) => {
+  try {
+    const { status } = req.query;
+    const all = await PromoCode.find().sort({ createdAt: -1 });
+
+    if (!status) return res.json(all);
+
+    const now = new Date();
+    if (status === 'active') {
+      return res.json(all.filter(p => new Date(p.expiresAt) >= now && p.usedCount < p.maxUsage));
+    }
+    if (status === 'expired') {
+      return res.json(all.filter(p => new Date(p.expiresAt) < now || p.usedCount >= p.maxUsage));
+    }
+
+    res.json(all);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+/* ----------------------
+   GET /promos/:id
+   Détails d'un code promo
+   ---------------------- */
+// app.get('/:id', isAuth, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Id invalide' });
+
+//     const promo = await PromoCode.findById(id);
+//     if (!promo) return res.status(404).json({ message: 'Code promo introuvable' });
+
+//     res.json(promo);
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ message: 'Erreur serveur' });
+//   }
+// });
+
+/* ----------------------
+   POST /promos
+   Créer un code promo (admin)
+   Body: { code, type, value, minAmount, expiresAt, maxUsage }
+   ---------------------- */
+app.post('/code/promo', async (req, res) => {
+  try {
+    let { code, type, value, minAmount, expiresAt, description } = req.body;
+
+    if (!code || !value || !expiresAt) {
+      return res.status(400).json({ message: 'code, value et expiresAt obligatoires' });
+    }
+
+    code = String(code).trim().toUpperCase();
+    type = type === 'fixed' ? 'fixed' : 'percentage';
+    value = Number(value);
+    minAmount = Number(minAmount) || 0;
+    description = description ? String(description).trim() : "";
+    expiresAt = new Date(expiresAt);
+
+    if (isNaN(value) || value <= 0)
+      return res.status(400).json({ message: 'Valeur invalide' });
+
+    if (isNaN(expiresAt.getTime()))
+      return res.status(400).json({ message: "Date d'expiration invalide" });
+
+    // 🔍 Vérifier unicité
+    const existing = await PromoCode.findOne({ code });
+    if (existing)
+      return res.status(409).json({ message: 'Code déjà existant' });
+
+    // ✅ Création du code promo
+    const promo = await PromoCode.create({
+      code,
+      type,
+      value,
+      minAmount,
+      expiresAt,
+      description,
+      usedBy: []
+    });
+
+    // ============================
+    // 📧 EMAIL À TOUS LES CLIENTS
+    // ============================
+
+    const users = await User.find({}, 'email'); // récupérer tous les emails
+    if (users.length > 0) {
+      const emails = users.map(u => u.email);
+
+      const mailOptions = {
+        from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+        to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
+        bcc: emails,
+        subject: "🎉 Nouveau code promo disponible sur CodeShop225 !",
+        html: `
+        <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
+          <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
+            
+            <!-- HEADER -->
+            <tr>
+              <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
+                <h1 style="margin:0">CodeShop225</h1>
+                <p style="margin-top:10px;font-size:16px">
+                  🎁 Nouveau code promo disponible !
+                </p>
+              </td>
+            </tr>
+
+            <!-- CONTENT -->
+            <tr>
+              <td style="padding:35px">
+                <h2 style="margin-top:0">Profitez dès maintenant 🔥</h2>
+
+                <p>${description || "Nous avons le plaisir de vous offrir un nouveau code promo valable sur notre plateforme."}</p>
+
+                <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
+                  <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
+                  <h1 style="margin:0;color:#4b00cc">${code}</h1>
+                </div>
+
+                <ul style="padding-left:18px;color:#374151">
+                  <li>Type : ${type === "percentage" ? `Réduction de ${value}%` : `Réduction de ${value.toLocaleString()} FCFA`}</li>
+                  ${minAmount > 0 ? `<li>Montant minimum : ${minAmount.toLocaleString()} FCFA</li>` : ""}
+                  <li>Valable jusqu’au : ${expiresAt.toLocaleDateString()}</li>
+                </ul>
+
+                <a href="https://codeshop225.ci"
+                  style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
+                  🛒 Utiliser le code
+                </a>
+
+                <p style="margin-top:25px;color:#6b7280">
+                  Merci pour votre fidélité 🙏<br/>
+                  <strong>L’équipe CodeShop225</strong>
+                </p>
+              </td>
+            </tr>
+
+            <!-- FOOTER -->
+            <tr>
+              <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+                © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
+              </td>
+            </tr>
+          </table>
+        </div>
+        `
+      };
+
+      transporter.sendMail(mailOptions).catch(err =>
+        console.error("Erreur email promo :", err)
+      );
+    }
+
+    // ============================
+    res.status(201).json(promo);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+// PUT /update/code/promo/:id
+app.put("/update/code/promo/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 🔒 Validation ID Mongo
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Id invalide" });
+    }
+
+    // 🔎 Récupérer l’ancien code promo
+    const oldPromo = await PromoCode.findById(id);
+    if (!oldPromo) {
+      return res.status(404).json({ message: "Code promo introuvable" });
+    }
+
+    // 🔒 Champs autorisés
+    const allowedFields = [
+      "code",
+      "type",
+      "value",
+      "minAmount",
+      "expiresAt",
+      "maxUsage",
+      "description"
+    ];
+
+    const update = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        update[field] = req.body[field];
+      }
+    }
+
+    // 🧼 Normalisation
+    if (update.code) update.code = String(update.code).trim().toUpperCase();
+    if (update.expiresAt) update.expiresAt = new Date(update.expiresAt);
+
+    // 🔁 Mise à jour
+    const promo = await PromoCode.findByIdAndUpdate(
+      id,
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+
+    // ============================
+    // 📧 EMAIL SI PROLONGATION (tous utilisateurs)
+    // ============================
+    if (req.body.expiresAt) {
+      const oldDate = new Date(oldPromo.expiresAt);
+      const newDate = new Date(req.body.expiresAt);
+
+      const isExtended = newDate.getTime() > oldDate.getTime();
+
+      // console.log("🕒 Ancienne date :", oldDate);
+      // console.log("🆕 Nouvelle date (requête) :", newDate);
+      // console.log("📧 Prolongation détectée ?", isExtended);
+
+      if (isExtended) {
+        try {
+          const users = await User.find({}, 'email');
+          if (users.length > 0) {
+            const emails = users.map(u => u.email);
+
+            await transporter.sendMail({
+              from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+              to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
+              bcc: emails,
+              subject: "⏰ Code promo prolongé – Profitez-en maintenant !",
+              html: `
+              <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
+                <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
+                  
+                  <!-- HEADER -->
+                  <tr>
+                    <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
+                      <h1 style="margin:0">CodeShop225</h1>
+                      <p style="margin-top:10px;font-size:16px">
+                        ⏰ Code promo prolongé !
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- CONTENT -->
+                  <tr>
+                    <td style="padding:35px">
+                      <h2 style="margin-top:0">Bonne nouvelle 🎉</h2>
+
+                      <p>
+                        Vous n’aviez pas encore profité de ce code promo ?
+                        <br/>
+                        Il a été <strong>prolongé</strong> pour vous laisser une nouvelle chance 🔥
+                      </p>
+
+                      <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
+                        <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
+                        <h1 style="margin:0;color:#4b00cc">${promo.code}</h1>
+                      </div>
+
+                      <ul style="padding-left:18px;color:#374151">
+                        <li>${promo.type === "percentage" ? `Réduction de ${promo.value}%` : `Réduction de ${promo.value.toLocaleString()} FCFA`}</li>
+                        // ${promo.minAmount > 0 ? `<li>Montant minimum : ${promo.minAmount.toLocaleString()} FCFA</li>` : ""}
+                        <li>Nouvelle date limite : <strong>${newDate.toLocaleDateString()}</strong></li>
+                      </ul>
+
+                      <a href="https://codeshop225.ci"
+                        style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
+                        🛒 Utiliser le code
+                      </a>
+
+                      <p style="margin-top:25px;color:#6b7280">
+                        Merci pour votre fidélité 🙏<br/>
+                        <strong>L’équipe CodeShop225</strong>
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- FOOTER -->
+                  <tr>
+                    <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+                      © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              `
+            });
+
+            console.log("✅ Email de prolongation envoyé à tous les utilisateurs");
+          }
+        } catch (mailErr) {
+          console.error("❌ Erreur envoi email promo :", mailErr);
+        }
+      }
+    }
+
+    // ============================
+    res.json(promo);
+
+  } catch (err) {
+    console.error("❌ Erreur update promo:", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+/* ----------------------
+   DELETE /promos/:id
+   Supprimer un code promo (admin)
+   ---------------------- */
+// DELETE /promos/:id
+app.delete('/promos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 🔒 validation id
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Id invalide' });
+    }
+
+    const promo = await PromoCode.findByIdAndDelete(id);
+
+    if (!promo) {
+      return res.status(404).json({ message: 'Code promo introuvable' });
+    }
+
+    res.json({
+      message: 'Code promo supprimé avec succès',
+      deletedId: promo._id
+    });
+  } catch (err) {
+    console.error('❌ Erreur suppression promo:', err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+/*--------
+
+
 /* ------------------------------------------------------------------ */
 /*  clients                               */
 /* ------------------------------------------------------------------ */
@@ -1288,6 +2198,222 @@ app.get('/nouveautes', async (req, res) => {
     res.json(produits);
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+
+
+
+app.get("/archived/:archiveId", async (req, res) => {
+  try {
+    const { archiveId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(archiveId)) {
+      return res.status(400).json({ message: "ID archive invalide" });
+    }
+
+    // Récupération de l'article archivé
+    const archive = await ArchiveArticle.findById(archiveId).lean();
+    if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
+
+    // Récupération des commandes associées à ce produit original
+    const commandes = await Commandes.find({ "cart.product": archive.originalProductId })
+      .populate("client", "name email") // infos client
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ archive, commandes });
+  } catch (err) {
+    console.error("Erreur récupération détails archive :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+
+
+app.get("/products/archived", async (req, res) => {
+  try {
+    const archivedArticles = await ArchiveArticle.find()
+      .sort({ archivedAt: -1 })
+      .lean();
+    
+    res.json({ products: archivedArticles });
+  } catch (err) {
+    console.error("Erreur récupération articles archivés :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+app.put("/archived/:archiveId", async (req, res) => {
+  try {
+    const { archiveId } = req.params;
+    const updates = req.body; // { title, price, reason, archivedAt, ... }
+
+    if (!mongoose.Types.ObjectId.isValid(archiveId)) {
+      return res.status(400).json({ message: "ID archive invalide" });
+    }
+
+    const archive = await ArchiveArticle.findByIdAndUpdate(
+      archiveId,
+      { $set: updates },
+      { new: true }
+    );
+
+    if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
+
+    res.json({ message: "Article archivé mis à jour", archive });
+  } catch (err) {
+    console.error("Erreur mise à jour archive :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+// GET messages actifs
+app.get("/get/messages", async (req, res) => {
+  try {
+    const now = new Date();
+    const messages = await Message.find({ expiresAt: { $gte: now } }).sort({ createdAt: -1 });
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// POST nouveau message
+// POST /new/messages
+app.post("/new/messages/", async (req, res) => {
+  try {
+    let { text, expiresAt } = req.body;
+
+    if (!text || !expiresAt) {
+      return res.status(400).json({ message: "Texte et date d'expiration obligatoires" });
+    }
+
+    // Convertir la string YYYY-MM-DD en Date valide
+    expiresAt = new Date(expiresAt);
+    expiresAt.setHours(23, 59, 59, 999); // fin de journée
+
+    // ✅ Création du message
+    const msg = new Message({ text, expiresAt });
+    await msg.save();
+
+    // ============================
+    // 📧 EMAIL À TOUS LES CLIENTS
+    // ============================
+    try {
+      // Récupérer tous les emails des utilisateurs
+      const users = await User.find({}, "email");
+      if (users.length > 0) {
+        const emails = users.map(u => u.email);
+
+        await transporter.sendMail({
+          from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+          to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
+          bcc: emails,
+          subject: "📢 Nouveau message important sur CodeShop225",
+          html: `
+<div style="background:#fff5e6;padding:40px 0;font-family:Segoe UI,Arial">
+  <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 12px 25px rgba(0,0,0,0.08)">
+    
+    <!-- HEADER FESTIF -->
+    <tr>
+      <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
+        <h1 style="margin:0;font-size:28px">🎉 Message spécial de CodeShop225 🎉</h1>
+        <p style="margin-top:10px;font-size:16px">
+          Une annonce importante ou un petit mot pour vous !
+        </p>
+      </td>
+    </tr>
+
+    <!-- CONTENU -->
+    <tr>
+      <td style="padding:35px;color:#333">
+        <h2 style="margin-top:0;font-size:22px">Bonjour !</h2>
+        <p style="font-size:16px;line-height:1.5">
+          ${text}
+        </p>
+
+        <div style="margin:20px 0;text-align:center">
+          <a href="https://codeshop225.ci"
+            style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#4b00cc,#6a00ff);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px">
+            🔗 Découvrir sur CodeShop225
+          </a>
+        </div>
+
+        <p style="margin-top:25px;color:#6b7280;font-size:14px">
+          Avec nos meilleurs vœux,<br/>
+          <strong>L’équipe CodeShop225 💜</strong>
+        </p>
+      </td>
+    </tr>
+
+    <!-- FOOTER -->
+    <tr>
+      <td style="background:#fff2e0;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+        © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
+      </td>
+    </tr>
+  </table>
+</div>
+          `
+        });
+
+        console.log("✅ Email de nouveau message envoyé à tous les utilisateurs");
+      }
+    } catch (mailErr) {
+      console.error("❌ Erreur envoi email message :", mailErr);
+    }
+
+    // ============================
+    res.status(201).json(msg);
+
+  } catch (err) {
+    console.error("❌ Erreur création message :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// DELETE message
+app.delete("/delete/messages/:id", async (req, res) => {
+  try {
+    await Message.findByIdAndDelete(req.params.id);
+    res.json({ message: "Message supprimé" });
+  } catch (err) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// PUT /update/messages/:id — Mettre à jour un message promo
+app.put('/update/messages/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Vérification de l'ID Mongo
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "ID invalide." });
+    }
+
+    const { text, expiresAt } = req.body;
+
+    if (!text || !expiresAt) {
+      return res.status(400).json({ message: "Le texte et la date d'expiration sont requis." });
+    }
+
+    // Chercher le message
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: "Message introuvable." });
+    }
+
+    // Mettre à jour
+    message.text = text;
+    message.expiresAt = new Date(expiresAt);
+
+    await message.save();
+
+    res.json(message);
+  } catch (err) {
+    console.error("Erreur mise à jour message :", err);
+    res.status(500).json({ message: "Erreur serveur." });
   }
 });
 
@@ -1665,6 +2791,41 @@ app.get('/nouveautes', async (req, res) => {
 //  seedAdminProducts();
 
 
+// 🔹 2. Mettre à jour toutes les commandes existantes
+// const commandes = await Commandes.find();
+// console.log(`Commandes trouvées : ${commandes.length}`);
+
+// for (const commande of commandes) {
+//   let updated = false;
+
+//   // Nouveau cart enrichi
+//   const newCart = await Promise.all(
+//     commande.cart.map(async (item) => {
+//       // Si prixAchat existe déjà, on garde
+//       if (item.prixAchat) return item;
+
+//       const product = await Product.findById(item.productId);
+//       if (!product) return item;
+
+//       updated = true;
+//       return {
+//         ...item,
+//         prixAchat: product.prixAchat || 0,
+//         title: item.title || product.title,
+//         price: item.price || product.price,
+//       };
+//     })
+//   );
+
+//   // Si la commande a été modifiée, on sauvegarde
+//   if (updated) {
+//     commande.cart = newCart;
+//     await commande.save();
+//     console.log(`✅ Commande ${commande._id} mise à jour`);
+//   }
+// }
+
+console.log("🎉 Mise à jour terminée !");
   
 
 app.listen(port , ()=> {

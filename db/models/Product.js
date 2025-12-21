@@ -40,6 +40,10 @@ const productSchema = new mongoose.Schema({
   },
   prixAchat: Number,
   label: String,
+  prixOriginal: {
+  type: Number,
+  default: 0
+},
   promotion: {type: Number, // en %
     default: 0
   },
@@ -65,6 +69,12 @@ type:String
 },
 comments: {type: mongoose.Schema.Types.ObjectId,ref: 'Comment',
   },
+
+archived: {
+  type: Boolean,
+  default: false,
+  index: true
+}
 }, { timestamps: true });
 
 export default mongoose.models.Product || mongoose.model('Product', productSchema);

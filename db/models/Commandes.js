@@ -1,6 +1,6 @@
 // models/Commandes.js
-import mongoose  from 'mongoose';
-import Counter   from './Counter.js';
+import mongoose from 'mongoose';
+import Counter from './Counter.js';
 
 /* ---------- Sous-documents ---------- */
 const CartItemSchema = new mongoose.Schema(
@@ -47,7 +47,24 @@ const CommandesSchema = new mongoose.Schema({
   paymentStatus : { type: String, enum: ['non payé', 'payé'],             default: 'non payé' },
 
   createdAt : { type: Date, default: Date.now },
-  historique: [{ date: Date, action: String }]
+  historique: [{ date: Date, action: String }],
+
+  promoCode: {
+    type: String,
+    default: null
+  },
+  discountAmount: {
+    type: Number,
+    default: 0
+  },
+    /** délai pour livraison */
+  deadline: {
+    type: Date,
+    default: function() {
+      // date de création + 7 jours
+      return new Date(Date.now() + 7*24*60*60*1000);
+    }
+  },
 });
 
 /* ---------- hooks ---------- */
@@ -76,6 +93,15 @@ CommandesSchema.pre('validate', async function (next) {
     next();
   } catch (err) { next(err); }
 });
+
+/* ---------- INDEX TTL : suppression commandes non livrées après 1 semaine ---------- */
+// CommandesSchema.index(
+//   { createdAt: 1 },
+//   {
+//     expireAfterSeconds: 7 * 24 * 60 * 60, // 7 jours en secondes
+//     partialFilterExpression: { status: { $ne: 'livrée' } } // uniquement commandes non livrées
+//   }
+// );
 
 const Commandes = mongoose.model('Commandes', CommandesSchema);
 export default Commandes;

@@ -13,6 +13,10 @@ const UsersSchema = new mongoose.Schema({
   status: { type: String, default: "client" },
   DateProfilCreated: { type: Date, default: Date.now },
   commandes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Commandes' }],
+
+  // 🔹 Ajout pour reset password
+  resetPasswordToken: { type: String },
+  resetPasswordExpire: { type: Number }, // timestamp en ms
 });
 
 // Middleware pour hacher le mot de passe avant sauvegarde
