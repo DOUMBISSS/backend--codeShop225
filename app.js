@@ -66,6 +66,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Pour que les images soient visibles
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(express.json());
 
 // Configuration Multer pour enregistrer les fichiers dans /uploads
 // const storage = multer.diskStorage({
