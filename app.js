@@ -906,17 +906,17 @@ app.delete('/products/:id', async (req, res) => {
   }
 });
 /* ========== COMMENTAIRES ========== */
-app.get('/products/:id/comments', async (req, res) => {
-  try {
-    const comments = await Comment.find({ product: req.params.id })
-      .sort({ createdAt: -1 })
-      .lean();
-    res.json(comments);
-  } catch (err) {
-    console.error('Erreur chargement commentaires :', err);
-    res.status(500).json({ message: 'Erreur serveur commentaires' });
-  }
-});
+// app.get('/products/:id/comments', async (req, res) => {
+//   try {
+//     const comments = await Comment.find({ product: req.params.id })
+//       .sort({ createdAt: -1 })
+//       .lean();
+//     res.json(comments);
+//   } catch (err) {
+//     console.error('Erreur chargement commentaires :', err);
+//     res.status(500).json({ message: 'Erreur serveur commentaires' });
+//   }
+// });
 
 app.get('/products/promos', async (req, res) => {
   try {
@@ -1866,12 +1866,6 @@ app.put("/update/code/promo/:id", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
-
-/* ----------------------
-   DELETE /promos/:id
-   Supprimer un code promo (admin)
-   ---------------------- */
-// DELETE /promos/:id
 app.delete('/promos/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -2015,22 +2009,6 @@ app.post('/email', async (req, res) => {
   }
 });
 
-
-// app.get('/newsletter', async (req, res) => {
-//   const { adminId } = req.query;
-
-//   if (!adminId) {
-//     return res.status(400).json({ message: "adminId requis." });
-//   }
-
-//   try {
-//     const emails = await News.find({ adminId }).sort({ createdAt: -1 });
-//     res.status(200).json(emails);
-//   } catch (err) {
-//     console.error('Erreur récupération emails :', err);
-//     res.status(500).json({ message: 'Erreur serveur.' });
-//   }
-// });
 app.get('/newsletter', async (req, res) => {
   try {
     const emails = await News.find().sort({ createdAt: -1 }); // ne pas filtrer .select()
