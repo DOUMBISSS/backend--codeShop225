@@ -54,18 +54,8 @@ const port = process.env.PORT;
 /* =========================
    🔥 CORS — AVANT TOUT
 ========================= */
-app.use(cors({
-  origin: [
-    "https://codeshop225.ci",
-    "https://www.codeshop225.ci",
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: false,
-}));
+app.use(cors());
 
-// 🔥 GESTION DU PREFLIGHT
-app.options("*", cors());
 
 /* =========================
    🔥 BODY PARSERS
@@ -81,19 +71,12 @@ const __dirname = path.dirname(__filename);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Configuration Multer pour enregistrer les fichiers dans /uploads
-// const storage = multer.diskStorage({
-//   destination: (req, file, cb) => {
-//     cb(null, 'uploads/');  // dossier de destination (doit exister)
-//   },
-//   filename: (req, file, cb) => {
-//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-//     const ext = path.extname(file.originalname);
-//     cb(null, uniqueSuffix + ext);
-//   }
-// });
+// Static
+const uploadDir = path.join(path.resolve(), "uploads");
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+app.use("/uploads", express.static(uploadDir));
 
-// const upload = multer({ storage });
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -1891,9 +1874,6 @@ app.delete('/promos/:id', async (req, res) => {
   }
 });
 
-/*--------
-
-
 /* ------------------------------------------------------------------ */
 /*  clients                               */
 /* ------------------------------------------------------------------ */
@@ -2067,69 +2047,69 @@ app.get('/nouveautes', async (req, res) => {
 
 
 
-app.get("/archived/:archiveId", async (req, res) => {
-  try {
-    const { archiveId } = req.params;
+// app.get("/archived/:archiveId", async (req, res) => {
+//   try {
+//     const { archiveId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(archiveId)) {
-      return res.status(400).json({ message: "ID archive invalide" });
-    }
+//     if (!mongoose.Types.ObjectId.isValid(archiveId)) {
+//       return res.status(400).json({ message: "ID archive invalide" });
+//     }
 
-    // Récupération de l'article archivé
-    const archive = await ArchiveArticle.findById(archiveId).lean();
-    if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
+//     // Récupération de l'article archivé
+//     const archive = await ArchiveArticle.findById(archiveId).lean();
+//     if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
 
-    // Récupération des commandes associées à ce produit original
-    const commandes = await Commandes.find({ "cart.product": archive.originalProductId })
-      .populate("client", "name email") // infos client
-      .sort({ createdAt: -1 })
-      .lean();
+//     // Récupération des commandes associées à ce produit original
+//     const commandes = await Commandes.find({ "cart.product": archive.originalProductId })
+//       .populate("client", "name email") // infos client
+//       .sort({ createdAt: -1 })
+//       .lean();
 
-    res.json({ archive, commandes });
-  } catch (err) {
-    console.error("Erreur récupération détails archive :", err);
-    res.status(500).json({ message: "Erreur serveur" });
-  }
-});
+//     res.json({ archive, commandes });
+//   } catch (err) {
+//     console.error("Erreur récupération détails archive :", err);
+//     res.status(500).json({ message: "Erreur serveur" });
+//   }
+// });
 
 
 
-app.get("/products/archived", async (req, res) => {
-  try {
-    const archivedArticles = await ArchiveArticle.find()
-      .sort({ archivedAt: -1 })
-      .lean();
+// app.get("/products/archived", async (req, res) => {
+//   try {
+//     const archivedArticles = await ArchiveArticle.find()
+//       .sort({ archivedAt: -1 })
+//       .lean();
     
-    res.json({ products: archivedArticles });
-  } catch (err) {
-    console.error("Erreur récupération articles archivés :", err);
-    res.status(500).json({ message: "Erreur serveur" });
-  }
-});
+//     res.json({ products: archivedArticles });
+//   } catch (err) {
+//     console.error("Erreur récupération articles archivés :", err);
+//     res.status(500).json({ message: "Erreur serveur" });
+//   }
+// });
 
-app.put("/archived/:archiveId", async (req, res) => {
-  try {
-    const { archiveId } = req.params;
-    const updates = req.body; // { title, price, reason, archivedAt, ... }
+// app.put("/archived/:archiveId", async (req, res) => {
+//   try {
+//     const { archiveId } = req.params;
+//     const updates = req.body; // { title, price, reason, archivedAt, ... }
 
-    if (!mongoose.Types.ObjectId.isValid(archiveId)) {
-      return res.status(400).json({ message: "ID archive invalide" });
-    }
+//     if (!mongoose.Types.ObjectId.isValid(archiveId)) {
+//       return res.status(400).json({ message: "ID archive invalide" });
+//     }
 
-    const archive = await ArchiveArticle.findByIdAndUpdate(
-      archiveId,
-      { $set: updates },
-      { new: true }
-    );
+//     const archive = await ArchiveArticle.findByIdAndUpdate(
+//       archiveId,
+//       { $set: updates },
+//       { new: true }
+//     );
 
-    if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
+//     if (!archive) return res.status(404).json({ message: "Article archivé non trouvé" });
 
-    res.json({ message: "Article archivé mis à jour", archive });
-  } catch (err) {
-    console.error("Erreur mise à jour archive :", err);
-    res.status(500).json({ message: "Erreur serveur" });
-  }
-});
+//     res.json({ message: "Article archivé mis à jour", archive });
+//   } catch (err) {
+//     console.error("Erreur mise à jour archive :", err);
+//     res.status(500).json({ message: "Erreur serveur" });
+//   }
+// });
 // GET messages actifs
 app.get("/get/messages", async (req, res) => {
   try {
