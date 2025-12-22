@@ -49,24 +49,36 @@ import crypto from 'crypto';
 
 
 
-const app = express();
-const port = process.env.PORT;
-app.use(cors());
-// Ajoute ceci pour servir les fichiers statiques depuis /uploads
-// app.use("/uploads", express.static(path.resolve("uploads")));
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-app.use('/uploads', express.static('uploads'));
-app.use('/api', server);
 
-app.use(bodyParser.json());
-app.use(cors({origin: '*',methods: ['GET', 'POST', 'PUT', 'DELETE'],allowedHeaders: ['Content-Type', 'Authorization']}));
-app.use((req, res, next) => {res.header('Access-Control-Allow-Origin', '*');res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');next();});
-// app.use('/api/factures', factureRoutes);
+/* =========================
+   🔥 CORS — AVANT TOUT
+========================= */
+app.use(cors({
+  origin: [
+    "https://codeshop225.ci",
+    "https://www.codeshop225.ci",
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false,
+}));
+
+// 🔥 GESTION DU PREFLIGHT
+app.options("*", cors());
+
+/* =========================
+   🔥 BODY PARSERS
+========================= */
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/* =========================
+   🔥 FICHIERS STATIQUES
+========================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Pour que les images soient visibles
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(express.json());
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Configuration Multer pour enregistrer les fichiers dans /uploads
 // const storage = multer.diskStorage({
