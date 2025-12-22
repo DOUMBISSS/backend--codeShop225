@@ -958,7 +958,7 @@ app.get('/products/promos', async (req, res) => {
 /*  ROUTE  POST  /products/:id/comments                               */
 /* ------------------------------------------------------------------ */
 
-app.get("products/:id/comments", async (req, res) => {
+app.get("/products/:id/comments", async (req, res) => {
   try {
     const comments = await Comment.find({ product: req.params.id })
       .populate("clients", "username"); // 🔹 ça va inclure username automatiquement
@@ -1417,94 +1417,7 @@ if (!produit) {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
-///tyui
-// app.post('/commandes', async (req, res) => {
-//   try {
-//     /* ---------- 1. Données reçues ---------- */
-//     const {
-//       client,               
-//       cart,                 // [{ productId, quantity, … }]
-//       totalAmount,
-//       paymentStatus,
-//       status,
-//       address,
-//       ville,
-//       livraisonAlt
-//     } = req.body;
 
-//     if (!Array.isArray(cart) || cart.length === 0) {
-//       return res.status(400).json({ message: 'Le panier ne peut pas être vide.' });
-//     }
-
-//     /* ---------- 2. Vérification du stock et enrichissement ---------- */
-//     const enrichedCart = [];
-//     for (const item of cart) {
-//       const produit = await Product.findById(item.productId);
-//       if (!produit) {
-//         return res.status(404).json({ message: `Produit introuvable : ${item.productId}` });
-//       }
-
-//       if (produit.stock < item.quantity) {
-//         return res.status(400).json({
-//           message: `Stock insuffisant pour "${produit.title}". Restant : ${produit.stock}, demandé : ${item.quantity}`
-//         });
-//       }
-
-//       // Ajout du produit enrichi avec prix d’achat et infos utiles
-//       enrichedCart.push({
-//         productId: produit._id,
-//         title: produit.title,
-//         reference: produit.reference,
-//         img: produit.img,
-//         price: produit.price,          // prix de vente
-//         prixAchat: produit.prixAchat,  // ✅ prix d’achat
-//         quantity: item.quantity,
-//       });
-//     }
-
-//     /* ---------- 3. Admin à partir du 1er produit ---------- */
-//     const adminId = enrichedCart[0]?.productId
-//       ? (await Product.findById(enrichedCart[0].productId)).adminId
-//       : null;
-
-//     if (!adminId) {
-//       return res.status(400).json({ message: "Admin introuvable à partir du produit." });
-//     }
-
-//     /* ---------- 4. Création de la commande ---------- */
-//     const newCommande = await Commandes.create({
-//       client,
-//       cart: enrichedCart, // ✅ cart enrichi avec prixAchat
-//       totalAmount,
-//       paymentStatus,
-//       status,
-//       adminId,
-//       address,
-//       ville,
-//       livraisonAlt: livraisonAlt?.address
-//         ? {
-//             address: livraisonAlt.address.trim(),
-//             ville: livraisonAlt.ville?.trim() || ''
-//           }
-//         : undefined
-//     });
-
-//     /* ---------- 5. Décrémentation du stock ---------- */
-//     await Promise.all(
-//       enrichedCart.map(it =>
-//         Product.findByIdAndUpdate(it.productId, { $inc: { stock: -it.quantity } })
-//       )
-//     );
-
-//     return res.status(201).json(newCommande);
-//   } catch (error) {
-//     console.error('Erreur lors de la commande :', error);
-//     return res.status(500).json({ message: 'Erreur serveur' });
-//   }
-// });
-                      // Mise à jour du statut d'une commande
-// Mettre à jour le statut général de la commande (ex: en cours, livrée, annulée)
-// Modifier le statut de livraison de la commande
 app.put('/commandes/:id/status', async (req, res) => {
   const commandeId = req.params.id;
   const { status } = req.body;
@@ -1667,10 +1580,7 @@ app.post("/apply", async (req, res) => {
 
 
 
-/* ----------------------
-   GET /promos
-   Récupère tous les promos (optionnel: query ?status=active|expired)
-   ---------------------- */
+
 app.get('/promos', async (req, res) => {
   try {
     const { status } = req.query;
@@ -1693,30 +1603,7 @@ app.get('/promos', async (req, res) => {
   }
 });
 
-/* ----------------------
-   GET /promos/:id
-   Détails d'un code promo
-   ---------------------- */
-// app.get('/:id', isAuth, async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Id invalide' });
 
-//     const promo = await PromoCode.findById(id);
-//     if (!promo) return res.status(404).json({ message: 'Code promo introuvable' });
-
-//     res.json(promo);
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: 'Erreur serveur' });
-//   }
-// });
-
-/* ----------------------
-   POST /promos
-   Créer un code promo (admin)
-   Body: { code, type, value, minAmount, expiresAt, maxUsage }
-   ---------------------- */
 app.post('/code/promo', async (req, res) => {
   try {
     let { code, type, value, minAmount, expiresAt, description } = req.body;
