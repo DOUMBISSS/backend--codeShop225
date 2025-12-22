@@ -49,7 +49,8 @@ import crypto from 'crypto';
 
 
 
-
+const app = express();
+const port = process.env.PORT;
 /* =========================
    🔥 CORS — AVANT TOUT
 ========================= */
