@@ -496,7 +496,7 @@ app.get('/users/:id', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur.' });
   }
 });
-app.get('/:adminId/users', async (req, res) => {
+app.get('/get/:adminId/users', async (req, res) => {
   try {
     const { adminId } = req.params;
 
@@ -953,25 +953,6 @@ app.get('/products/promos', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
-
-
-/* ------------------------------------------------------------------ */
-/*  MIDDLEWARE verifyJWT                                              */
-/* ------------------------------------------------------------------ */
-function verifyJWT(req, res, next) {
-  const authHeader = req.headers.authorization || ''; // "Bearer <token>"
-  const token      = authHeader.split(' ')[1];
-
-  if (!token) return res.status(401).json({ message: 'Token manquant' });
-
-  try {
-    const decoded     = jwt.verify(token, 'user_secret_key'); // même clé que pour le login
-    req.userId        = decoded.id;   // on stocke l’ID
-    next();
-  } catch (err) {
-    return res.status(401).json({ message: 'Token invalide' });
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /*  ROUTE  POST  /products/:id/comments                               */
