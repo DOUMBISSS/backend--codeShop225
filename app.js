@@ -1628,74 +1628,74 @@ app.post('/code/promo', async (req, res) => {
     // 📧 EMAIL À TOUS LES CLIENTS
     // ============================
 
-    const users = await User.find({}, 'email'); // récupérer tous les emails
-    if (users.length > 0) {
-      const emails = users.map(u => u.email);
+    // const users = await User.find({}, 'email'); // récupérer tous les emails
+    // if (users.length > 0) {
+    //   const emails = users.map(u => u.email);
 
-      const mailOptions = {
-        from: `"CodeShop225" <infos@codeshop225.ci>`,
-        to: "infos@codeshop225.ci", // safe
-        bcc: emails,               // clients
-        subject: "🎉 Nouveau code promo disponible sur CodeShop225 !",
-        html: `
-        <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
-          <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
+    //   const mailOptions = {
+    //     from: `"CodeShop225" <infos@codeshop225.ci>`,
+    //     to: "infos@codeshop225.ci", // safe
+    //     bcc: emails,               // clients
+    //     subject: "🎉 Nouveau code promo disponible sur CodeShop225 !",
+    //     html: `
+    //     <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
+    //       <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
             
-            <!-- HEADER -->
-            <tr>
-              <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
-                <h1 style="margin:0">CodeShop225</h1>
-                <p style="margin-top:10px;font-size:16px">
-                  🎁 Nouveau code promo disponible !
-                </p>
-              </td>
-            </tr>
+    //         <!-- HEADER -->
+    //         <tr>
+    //           <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
+    //             <h1 style="margin:0">CodeShop225</h1>
+    //             <p style="margin-top:10px;font-size:16px">
+    //               🎁 Nouveau code promo disponible !
+    //             </p>
+    //           </td>
+    //         </tr>
 
-            <!-- CONTENT -->
-            <tr>
-              <td style="padding:35px">
-                <h2 style="margin-top:0">Profitez dès maintenant 🔥</h2>
+    //         <!-- CONTENT -->
+    //         <tr>
+    //           <td style="padding:35px">
+    //             <h2 style="margin-top:0">Profitez dès maintenant 🔥</h2>
 
-                <p>${description || "Nous avons le plaisir de vous offrir un nouveau code promo valable sur notre plateforme."}</p>
+    //             <p>${description || "Nous avons le plaisir de vous offrir un nouveau code promo valable sur notre plateforme."}</p>
 
-                <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
-                  <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
-                  <h1 style="margin:0;color:#4b00cc">${code}</h1>
-                </div>
+    //             <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
+    //               <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
+    //               <h1 style="margin:0;color:#4b00cc">${code}</h1>
+    //             </div>
 
-                <ul style="padding-left:18px;color:#374151">
-                  <li>Type : ${type === "percentage" ? `Réduction de ${value}%` : `Réduction de ${value.toLocaleString()} FCFA`}</li>
-                  ${minAmount > 0 ? `<li>Montant minimum : ${minAmount.toLocaleString()} FCFA</li>` : ""}
-                  <li>Valable jusqu’au : ${expiresAt.toLocaleDateString()}</li>
-                </ul>
+    //             <ul style="padding-left:18px;color:#374151">
+    //               <li>Type : ${type === "percentage" ? `Réduction de ${value}%` : `Réduction de ${value.toLocaleString()} FCFA`}</li>
+    //               ${minAmount > 0 ? `<li>Montant minimum : ${minAmount.toLocaleString()} FCFA</li>` : ""}
+    //               <li>Valable jusqu’au : ${expiresAt.toLocaleDateString()}</li>
+    //             </ul>
 
-                <a href="https://codeshop225.ci"
-                  style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
-                  🛒 Utiliser le code
-                </a>
+    //             <a href="https://codeshop225.ci"
+    //               style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
+    //               🛒 Utiliser le code
+    //             </a>
 
-                <p style="margin-top:25px;color:#6b7280">
-                  Merci pour votre fidélité 🙏<br/>
-                  <strong>L’équipe CodeShop225</strong>
-                </p>
-              </td>
-            </tr>
+    //             <p style="margin-top:25px;color:#6b7280">
+    //               Merci pour votre fidélité 🙏<br/>
+    //               <strong>L’équipe CodeShop225</strong>
+    //             </p>
+    //           </td>
+    //         </tr>
 
-            <!-- FOOTER -->
-            <tr>
-              <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
-                © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
-              </td>
-            </tr>
-          </table>
-        </div>
-        `
-      };
+    //         <!-- FOOTER -->
+    //         <tr>
+    //           <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+    //             © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
+    //           </td>
+    //         </tr>
+    //       </table>
+    //     </div>
+    //     `
+    //   };
 
-      transporter.sendMail(mailOptions).catch(err =>
-        console.error("Erreur email promo :", err)
-      );
-    }
+    //   transporter.sendMail(mailOptions).catch(err =>
+    //     console.error("Erreur email promo :", err)
+    //   );
+    // }
 
     // ============================
     res.status(201).json(promo);
@@ -1753,93 +1753,93 @@ app.put("/update/code/promo/:id", async (req, res) => {
     // ============================
     // 📧 EMAIL SI PROLONGATION (tous utilisateurs)
     // ============================
-    if (req.body.expiresAt) {
-      const oldDate = new Date(oldPromo.expiresAt);
-      const newDate = new Date(req.body.expiresAt);
+    // if (req.body.expiresAt) {
+    //   const oldDate = new Date(oldPromo.expiresAt);
+    //   const newDate = new Date(req.body.expiresAt);
 
-      const isExtended = newDate.getTime() > oldDate.getTime();
+    //   const isExtended = newDate.getTime() > oldDate.getTime();
 
-      // console.log("🕒 Ancienne date :", oldDate);
-      // console.log("🆕 Nouvelle date (requête) :", newDate);
-      // console.log("📧 Prolongation détectée ?", isExtended);
+    //   // console.log("🕒 Ancienne date :", oldDate);
+    //   // console.log("🆕 Nouvelle date (requête) :", newDate);
+    //   // console.log("📧 Prolongation détectée ?", isExtended);
 
-      if (isExtended) {
-        try {
-          const users = await User.find({}, 'email');
-          if (users.length > 0) {
-            const emails = users.map(u => u.email);
+    //   if (isExtended) {
+    //     try {
+    //       const users = await User.find({}, 'email');
+    //       if (users.length > 0) {
+    //         const emails = users.map(u => u.email);
 
-            await transporter.sendMail({
-              from: `"CodeShop225" <${process.env.SMTP_USER}>`,
-              to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
-              bcc: emails,
-              subject: "⏰ Code promo prolongé – Profitez-en maintenant !",
-              html: `
-              <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
-                <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
+    //         await transporter.sendMail({
+    //           from: `"CodeShop225" <${process.env.SMTP_USER}>`,
+    //           to: `"CodeShop225" <${process.env.SMTP_USER}>`, // Gmail safe
+    //           bcc: emails,
+    //           subject: "⏰ Code promo prolongé – Profitez-en maintenant !",
+    //           html: `
+    //           <div style="background:#f4f6fb;padding:40px 0;font-family:Segoe UI,Arial">
+    //             <table width="100%" style="max-width:650px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 15px 35px rgba(0,0,0,0.08)">
                   
-                  <!-- HEADER -->
-                  <tr>
-                    <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
-                      <h1 style="margin:0">CodeShop225</h1>
-                      <p style="margin-top:10px;font-size:16px">
-                        ⏰ Code promo prolongé !
-                      </p>
-                    </td>
-                  </tr>
+    //               <!-- HEADER -->
+    //               <tr>
+    //                 <td style="background:linear-gradient(135deg,#4b00cc,#6a00ff);padding:30px;text-align:center;color:#fff">
+    //                   <h1 style="margin:0">CodeShop225</h1>
+    //                   <p style="margin-top:10px;font-size:16px">
+    //                     ⏰ Code promo prolongé !
+    //                   </p>
+    //                 </td>
+    //               </tr>
 
-                  <!-- CONTENT -->
-                  <tr>
-                    <td style="padding:35px">
-                      <h2 style="margin-top:0">Bonne nouvelle 🎉</h2>
+    //               <!-- CONTENT -->
+    //               <tr>
+    //                 <td style="padding:35px">
+    //                   <h2 style="margin-top:0">Bonne nouvelle 🎉</h2>
 
-                      <p>
-                        Vous n’aviez pas encore profité de ce code promo ?
-                        <br/>
-                        Il a été <strong>prolongé</strong> pour vous laisser une nouvelle chance 🔥
-                      </p>
+    //                   <p>
+    //                     Vous n’aviez pas encore profité de ce code promo ?
+    //                     <br/>
+    //                     Il a été <strong>prolongé</strong> pour vous laisser une nouvelle chance 🔥
+    //                   </p>
 
-                      <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
-                        <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
-                        <h1 style="margin:0;color:#4b00cc">${promo.code}</h1>
-                      </div>
+    //                   <div style="margin:25px 0;padding:20px;border:2px dashed #4b00cc;border-radius:12px;text-align:center">
+    //                     <p style="font-size:14px;color:#6b7280;margin-bottom:5px">CODE PROMO</p>
+    //                     <h1 style="margin:0;color:#4b00cc">${promo.code}</h1>
+    //                   </div>
 
-                      <ul style="padding-left:18px;color:#374151">
-                        <li>${promo.type === "percentage" ? `Réduction de ${promo.value}%` : `Réduction de ${promo.value.toLocaleString()} FCFA`}</li>
-                        // ${promo.minAmount > 0 ? `<li>Montant minimum : ${promo.minAmount.toLocaleString()} FCFA</li>` : ""}
-                        <li>Nouvelle date limite : <strong>${newDate.toLocaleDateString()}</strong></li>
-                      </ul>
+    //                   <ul style="padding-left:18px;color:#374151">
+    //                     <li>${promo.type === "percentage" ? `Réduction de ${promo.value}%` : `Réduction de ${promo.value.toLocaleString()} FCFA`}</li>
+    //                     // ${promo.minAmount > 0 ? `<li>Montant minimum : ${promo.minAmount.toLocaleString()} FCFA</li>` : ""}
+    //                     <li>Nouvelle date limite : <strong>${newDate.toLocaleDateString()}</strong></li>
+    //                   </ul>
 
-                      <a href="https://codeshop225.ci"
-                        style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
-                        🛒 Utiliser le code
-                      </a>
+    //                   <a href="https://codeshop225.ci"
+    //                     style="display:inline-block;margin-top:20px;padding:14px 28px;background:#4b00cc;color:#fff;text-decoration:none;border-radius:10px;font-weight:700">
+    //                     🛒 Utiliser le code
+    //                   </a>
 
-                      <p style="margin-top:25px;color:#6b7280">
-                        Merci pour votre fidélité 🙏<br/>
-                        <strong>L’équipe CodeShop225</strong>
-                      </p>
-                    </td>
-                  </tr>
+    //                   <p style="margin-top:25px;color:#6b7280">
+    //                     Merci pour votre fidélité 🙏<br/>
+    //                     <strong>L’équipe CodeShop225</strong>
+    //                   </p>
+    //                 </td>
+    //               </tr>
 
-                  <!-- FOOTER -->
-                  <tr>
-                    <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
-                      © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
-                    </td>
-                  </tr>
-                </table>
-              </div>
-              `
-            });
+    //               <!-- FOOTER -->
+    //               <tr>
+    //                 <td style="background:#f9fafb;padding:15px;text-align:center;font-size:12px;color:#9ca3af">
+    //                   © ${new Date().getFullYear()} CodeShop225 – Tous droits réservés
+    //                 </td>
+    //               </tr>
+    //             </table>
+    //           </div>
+    //           `
+    //         });
 
-            console.log("✅ Email de prolongation envoyé à tous les utilisateurs");
-          }
-        } catch (mailErr) {
-          console.error("❌ Erreur envoi email promo :", mailErr);
-        }
-      }
-    }
+    //         console.log("✅ Email de prolongation envoyé à tous les utilisateurs");
+    //       }
+    //     } catch (mailErr) {
+    //       console.error("❌ Erreur envoi email promo :", mailErr);
+    //     }
+    //   }
+    // }
 
     // ============================
     res.json(promo);
