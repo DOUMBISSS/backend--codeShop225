@@ -44,6 +44,7 @@ import cron from 'node-cron';
 import ArchiveArticle from './db/models/ArchiveArticle.js';
 import Message from './db/models/Message.js';
 import crypto from 'crypto';
+import Depense from './db/models/Depense.js';
 
 
 
@@ -667,7 +668,9 @@ app.get('/admin/:adminId', async (req, res) => {
     }
 
    const admin = await Admin.findById(adminId)
-  .populate('products')
+  .populate({path: 'products',
+  match: { archived: false }
+})
   .populate({
     path: 'commandes',
     populate: {
@@ -691,13 +694,14 @@ app.get('/admin/:adminId', async (req, res) => {
 /* ========== LISTE COMPLETE ========== */
 app.get('/products', async (req, res) => {
   try {
-    const products = await Product.find().lean();
+    const products = await Product.find({archived: false}).lean();
     res.json(products);
   } catch (err) {
     console.error('Erreur liste produits :', err);
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
+
 app.get('/products/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -808,51 +812,48 @@ app.get('/detailProduct/:id', async (req, res) => {
   }
 });
 
-app.put('/products/:id', async (req, res) => {
+app.put('/update/products/:id', async (req, res) => {
   try {
-    const produit = await Product.findById(req.params.id);
-    if (!produit) return res.status(404).json({ message: 'Produit non trouvé' });
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Produit non trouvé' });
 
-    const prixVente = Number(req.body.prixVente) ?? produit.prixVente ?? 0;
-    const promotion = Number(req.body.promotion) ?? 0;
-    const prixAchat = Number(req.body.prixAchat) ?? produit.prixAchat ?? 0;
-    const prixFinalManuel = Number(req.body.price); // optionnel pour forcer le prix final
+    const {
+      reference, title, description, label, categorie, groupe, videoUrl,
+      stock, disponible, nouveaute, basePrice, promotion, prixAchat,
+      img, existingImages, images
+    } = req.body;
 
-    // Mettre à jour les champs généraux
-    Object.assign(produit, {
-      reference: req.body.reference ?? produit.reference,
-      title: req.body.title ?? produit.title,
-      description: req.body.description ?? produit.description,
-      label: req.body.label ?? produit.label,
-      categorie: req.body.categorie ?? produit.categorie,
-      groupe: req.body.groupe ?? produit.groupe,
-      videoUrl: req.body.videoUrl ?? produit.videoUrl,
-      stock: req.body.stock !== undefined ? Number(req.body.stock) : produit.stock,
-      disponible: req.body.disponible !== undefined ? req.body.disponible : produit.disponible,
-      nouveaute: req.body.nouveaute !== undefined ? req.body.nouveaute : produit.nouveaute,
-      prixVente,
-      prixAchat,
-      promotion
+    // Mise à jour des champs simples
+    Object.assign(product, {
+      reference, title, description, label, categorie, groupe, videoUrl,
+      stock: Number(stock),
+      disponible: disponible ?? product.disponible,
+      nouveaute: nouveaute ?? product.nouveaute,
+      prixAchat: Number(prixAchat) || product.prixAchat,
+      promotion: Number(promotion) || 0,
     });
 
-    // ⚡ Gestion prix original et prix final
-    // Si prixOriginal n'existe pas, on le définit une seule fois comme prix réel de base
-    if (!produit.prixOriginal) {
-      produit.prixOriginal = prixVente;
+    // Gestion du prix original et du prix final
+    const newBasePrice = Number(basePrice);
+    if (!isNaN(newBasePrice) && newBasePrice > 0) {
+      // Mise à jour du prix original (base) uniquement si un nouveau prix est fourni
+      product.prixOriginal = newBasePrice;
     }
 
-    if (promotion > 0) {
-      // Appliquer promo sur le prix original
-      produit.price = Math.round(produit.prixOriginal - (produit.prixOriginal * promotion / 100));
+    // Calcul du prix final selon la promotion
+    if (product.promotion > 0) {
+      product.price = Math.round(product.prixOriginal * (1 - product.promotion / 100));
     } else {
-      // Promo = 0 → prixFinal = prixVente ou prixFinalManuel
-      produit.price = prixFinalManuel ?? prixVente;
-      // Ne jamais écraser prixOriginal, on garde toujours le prix réel de base
+      product.price = product.prixOriginal;
     }
 
-    await produit.save();
-    res.json({ message: 'Produit mis à jour', produit });
+    // Gestion des images
+    if (img) product.img = img;
+    if (existingImages) product.images = existingImages;
+    if (images && images.length) product.images.push(...images);
 
+    await product.save();
+    res.json({ message: 'Produit mis à jour', product });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Erreur serveur' });
@@ -1176,6 +1177,20 @@ app.get('/commandes/:id', async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
+
+// export const addArchivedField = async () => {
+//   try {
+//     const result = await Product.updateMany(
+//       { archived: { $exists: false } },
+//       { $set: { archived: false } }
+//     );
+//     console.log(`✅ ${result.modifiedCount} produits mis à jour avec archived: false`);
+//   } catch (err) {
+//     console.error("Erreur :", err);
+//   }
+// };
+
+// addArchivedField();
 
 
 // export async function updateCommandes() {
@@ -2257,6 +2272,380 @@ app.put('/update/messages/:id', async (req, res) => {
   } catch (err) {
     console.error("Erreur mise à jour message :", err);
     res.status(500).json({ message: "Erreur serveur." });
+  }
+});
+
+// Produit archivé
+app.post("/products/:id/archive", async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    if (product.archived) {
+      return res.status(400).json({ message: "Produit déjà archivé" });
+    }
+
+    const adminId = product.adminId; // ✅ SAFE
+
+    // 🔒 Snapshot figé (SANS reason)
+    await ArchiveArticle.create({
+      originalProductId: product._id,
+
+      title: product.title,
+      reference: product.reference,
+      description: product.description,
+      categorie: product.categorie,
+      groupe: product.groupe,
+
+      price: product.price,
+      prixAchat: product.prixAchat,
+
+      stock: product.stock,
+      disponible: false,
+
+      img: product.img,
+      images: product.images,
+      specifications: product.specifications,
+
+      adminId,
+      archivedBy: adminId
+    });
+
+    // 🔕 Désactivation produit
+    product.archived = true;
+    product.stock = 0;
+    await product.save();
+
+    res.json({ success: true, message: "Produit archivé avec succès" });
+
+  } catch (err) {
+    console.error("Erreur archivage :", err);
+    res.status(500).json({ message: "Erreur archivage produit" });
+  }
+});
+
+// backend /products/archived
+app.get('/products/archived/:adminId', async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(adminId)) {
+      return res.status(400).json({ message: 'adminId invalide.' });
+    }
+
+    const admin = await Admin.findById(adminId)
+      .populate({
+        path: 'products',
+        match: { archived: true }, // <-- seuls les produits archivés
+        options: { sort: { archivedAt: -1 } }
+      });
+
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin non trouvé.' });
+    }
+
+    res.json({ products: admin.products });
+  } catch (err) {
+    console.error('Erreur récupération produits archivés :', err);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+});
+
+app.get("/products/archived/:id", async (req, res) => {
+  try {
+    const archive = await ArchiveArticle.findOne({
+      _id: req.params.id,
+      adminId: req.user._id
+    });
+
+    if (!archive) {
+      return res.status(404).json({ message: "Archive introuvable" });
+    }
+
+    res.json({ archive });
+
+  } catch (err) {
+    res.status(500).json({ message: "Erreur détail archive" });
+  }
+});
+
+app.put("/products/archived/:id", async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    const archive = await ArchiveArticle.findOneAndUpdate(
+      { _id: req.params.id, adminId: req.user._id },
+      { reason },
+      { new: true }
+    );
+
+    if (!archive) {
+      return res.status(404).json({ message: "Archive introuvable" });
+    }
+
+    res.json({ success: true, archive });
+
+  } catch (err) {
+    res.status(500).json({ message: "Erreur mise à jour archive" });
+  }
+});
+
+// RESTAURATION SIMPLE
+app.post("/products/:id/restore", async (req, res) => {
+  console.log("RESTORE ROUTE HIT:", req.params.id);
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: "Produit introuvable" });
+
+    product.archived = false;
+    await product.save();
+
+    res.json({ success: true, message: "Produit restauré" });
+  } catch (err) {
+    console.error("Erreur restauration :", err);
+    res.status(500).json({ message: "Erreur restauration produit" });
+  }
+});
+
+/**
+ * GET /commandes/product/:productId
+ * Récupère toutes les commandes qui contiennent ce produit
+ * + statistiques (quantité totale et chiffre d'affaires)
+ */
+app.get('/commandes/product/:productId', async (req, res) => {
+  const { productId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    return res.status(400).json({ message: 'ID produit invalide' });
+  }
+
+  try {
+    // Récupérer toutes les commandes contenant ce produit dans le panier
+    const commandes = await Commandes.find({ 'cart.productId': productId })
+      .populate('client', 'name email') // populate client si nécessaire
+      .lean();
+
+    // Calcul statistiques
+    let totalQuantity = 0;
+    let totalRevenue = 0;
+
+    commandes.forEach((commande) => {
+      commande.cart.forEach((item) => {
+        if (item.productId.toString() === productId) {
+          totalQuantity += item.quantity;
+          totalRevenue += item.quantity * item.price;
+        }
+      });
+    });
+
+    res.json({
+      commandes,
+      stats: {
+        totalQuantity,
+        totalRevenue,
+        totalOrders: commandes.length,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+app.get("/dashboard/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(adminId)) {
+    return res.status(400).json({ message: "adminId invalide" });
+  }
+
+  try {
+    /* ===================== COMMANDES ===================== */
+    const commandes = await Commandes.find({ adminId })
+      .populate("client", "name surname email number ville")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    /* 1️⃣ 5 dernières commandes */
+    const lastOrders = commandes.slice(0, 5);
+
+    /* ===================== TOP CLIENTS ===================== */
+    const clientMap = {};
+
+    commandes.forEach(cmd => {
+      if (!cmd.client?._id) return;
+      const id = cmd.client._id.toString();
+      clientMap[id] = (clientMap[id] || 0) + 1;
+    });
+
+    const topClients = Object.entries(clientMap)
+      .map(([clientId, total]) => {
+        const client = commandes.find(
+          c => c.client && c.client._id.toString() === clientId
+        )?.client;
+
+        return {
+          clientId,
+          totalOrders: total,
+          name: client?.name,
+          surname: client?.surname,
+          email: client?.email
+        };
+      })
+      .sort((a, b) => b.totalOrders - a.totalOrders)
+      .slice(0, 5);
+
+    /* ===================== TOP PRODUITS ===================== */
+    const productMap = {};
+
+    commandes.forEach(cmd => {
+      cmd.cart.forEach(item => {
+        const pid = item.productId.toString();
+        if (!productMap[pid]) {
+          productMap[pid] = {
+            productId: pid,
+            title: item.title,
+            totalQuantity: 0,
+            totalRevenue: 0
+          };
+        }
+        productMap[pid].totalQuantity += item.quantity;
+        productMap[pid].totalRevenue += item.quantity * item.price;
+      });
+    });
+
+    const topProducts = Object.values(productMap)
+      .sort((a, b) => b.totalQuantity - a.totalQuantity)
+      .slice(0, 5);
+
+    /* ===================== STOCK FAIBLE ===================== */
+    const lowStockProducts = await Product.find({
+      adminId,
+      archived: false,
+      stock: { $lte: 5 }
+    })
+      .select("title reference stock price img")
+      .sort({ stock: 1 })
+      .limit(5)
+      .lean();
+
+    /* ===================== CHIFFRE D'AFFAIRES ===================== */
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    let caMonth = 0;
+    const caByMonth = {};
+
+    commandes.forEach(cmd => {
+      if (cmd.paymentStatus !== "payé") return;
+
+      const total = cmd.totalAmount || 0;
+      const monthKey = cmd.createdAt.toISOString().slice(0, 7); // YYYY-MM
+
+      caByMonth[monthKey] = (caByMonth[monthKey] || 0) + total;
+
+      if (cmd.createdAt >= startMonth) {
+        caMonth += total;
+      }
+    });
+
+    /* ===================== RÉPONSE ===================== */
+    res.json({
+      lastOrders,
+      topClients,
+      topProducts,
+      lowStockProducts,
+      caMonth,
+      caByMonth,
+      totalOrders: commandes.length
+    });
+
+  } catch (err) {
+    console.error("Erreur dashboard:", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+app.post("/new/depense/achat", async (req, res) => {
+  try {
+    const { adminId, type, categorie, montant, description } = req.body;
+
+    if (!adminId || !montant) {
+      return res.status(400).json({ message: "Champs manquants" });
+    }
+
+    const depense = await Depense.create({
+      adminId,
+      type,
+      categorie,
+      montant: Number(montant),
+      description
+    });
+
+    res.status(201).json(depense);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err.message });
+  }
+});																								
+
+app.get("/depense/achat", async (req, res) => {
+  try {
+    const { adminId } = req.query;
+
+    if (!adminId) {
+      return res.status(400).json({ message: "adminId manquant" });
+    }
+
+    const depenses = await Depense.find({ adminId }).sort({ createdAt: -1 });
+    res.json(depenses);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});																							
+
+app.get("/get/depense/achat/:id", async (req, res) => {
+  try {
+    const depense = await Depense.findById(req.params.id);
+    if (!depense) {
+      return res.status(404).json({ message: "Introuvable" });
+    }
+    res.json(depense);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});																									
+
+app.put("/update/depense/achat/:id", async (req, res) => {
+  try {
+    const depense = await Depense.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!depense) {
+      return res.status(404).json({ message: "Introuvable" });
+    }
+
+    res.json(depense);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});																									
+
+app.delete("/delete/depense/achat/:id", async (req, res) => {
+  try {
+    const depense = await Depense.findByIdAndDelete(req.params.id);
+    if (!depense) {
+      return res.status(404).json({ message: "Introuvable" });
+    }
+    res.json({ message: "Supprimé avec succès" });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 

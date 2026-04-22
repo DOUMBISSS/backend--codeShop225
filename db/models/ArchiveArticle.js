@@ -49,9 +49,7 @@ const ArchiveArticleSchema = new mongoose.Schema(
       ref: 'Admin'
     },
 
-    reason: {
-      type: String
-    }
+  
   },
   {
     timestamps: true
