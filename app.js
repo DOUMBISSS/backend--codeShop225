@@ -22,7 +22,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import Admin from './db/models/Admin.js';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from "jsonwebtoken";
 // import { faker } from "@faker-js/faker";
 import User from './db/models/users.js';
@@ -163,7 +163,7 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: false,
   },
 });
-export default transporter;
+export { transporter };
 
 app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => {
   try {
@@ -191,7 +191,7 @@ app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => 
       number,
       email,
       password,
-      photo: req.file ? req.file.filename : "",
+      photo: req.file ? req.file.path : "",
     });
 
     await newUser.save();
@@ -597,22 +597,15 @@ app.put("/admin/:id", uploadAdminImage.single("photo"), async (req, res) => {
 
     // Gestion photo
     if (req.file) {
-      // Nouvelle photo uploadée → supprimer ancienne photo physique si existante
-      if (admin.photo) {
-        const oldPhotoPath = path.resolve(__dirname, admin.photo.replace(/^\/+/g, "")); // retirer slash initial
-        if (fs.existsSync(oldPhotoPath)) {
-          fs.unlinkSync(oldPhotoPath);
-        }
+      // Nouvelle photo uploadée → supprimer ancienne photo Cloudinary si existante
+      if (admin.photo?.startsWith('http')) {
+        await deleteImageFromCloudinary(admin.photo);
       }
-      // Enregistrer nouvelle photo (chemin relatif)
-      updateData.photo = `/uploads/admins/${req.file.filename}`;
+      updateData.photo = req.file.path;
     } else if (req.body.photo === "") {
       // Suppression volontaire de la photo
-      if (admin.photo) {
-        const oldPhotoPath = path.resolve(__dirname, admin.photo.replace(/^\/+/g, ""));
-        if (fs.existsSync(oldPhotoPath)) {
-          fs.unlinkSync(oldPhotoPath);
-        }
+      if (admin.photo?.startsWith('http')) {
+        await deleteImageFromCloudinary(admin.photo);
       }
       updateData.photo = "";
     }
@@ -635,7 +628,7 @@ app.post("/admin/register", uploadAdminImage.single("photo"), async (req, res) =
     const existing = await Admin.findOne({ email });
     if (existing) return res.status(400).json({ message: "Email déjà utilisé" });
 
-    const photoPath = req.file ? `/uploads/admins/${req.file.filename}` : null;
+    const photoPath = req.file ? req.file.path : null;
 
     // ❌ PAS de hachage ici — le .pre('save') s'en charge
     const newAdmin = new Admin({
@@ -1051,21 +1044,43 @@ app.delete('/products/:id/images/:filename', async (req, res) => {
 /*  commandes                              */
 /* ------------------------------------------------------------------ */
 
-// Toutes les 12h
-// ⏰ Toutes les 12 heures
-cron.schedule("0 */12 * * *", async () => {
+// ⏰ Nettoyage des commandes non payées expirées, toutes les 12h.
+// En local (npm start) : géré par node-cron. Sur Vercel : géré par
+// un Vercel Cron Job qui appelle GET /cron/cleanup-commandes (voir vercel.json).
+const cleanupCommandesExpirees = async () => {
+  const now = new Date();
+  const result = await Commandes.deleteMany({
+    paymentStatus: "non payé",
+    status: { $in: ["en attente", "à livrer"] },
+    deadline: { $lt: now }
+  });
+  console.log(`🗑️ Commandes non payées supprimées : ${result.deletedCount}`);
+  return result.deletedCount;
+};
+
+if (!process.env.VERCEL) {
+  cron.schedule("0 */12 * * *", async () => {
+    try {
+      await cleanupCommandesExpirees();
+    } catch (err) {
+      console.error("❌ Erreur suppression commandes expirées :", err);
+    }
+  });
+}
+
+app.get('/cron/cleanup-commandes', async (req, res) => {
+  if (process.env.CRON_SECRET) {
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ message: 'Non autorisé' });
+    }
+  }
   try {
-    const now = new Date();
-
-    const result = await Commandes.deleteMany({
-      paymentStatus: "non payé",
-      status: { $in: ["en attente", "à livrer"] },
-      deadline: { $lt: now }
-    });
-
-    console.log(`🗑️ Commandes non payées supprimées : ${result.deletedCount}`);
+    const deletedCount = await cleanupCommandesExpirees();
+    res.json({ message: 'Nettoyage effectué', deletedCount });
   } catch (err) {
     console.error("❌ Erreur suppression commandes expirées :", err);
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 });
 
@@ -3060,6 +3075,10 @@ app.delete("/delete/depense/achat/:id", async (req, res) => {
 console.log("🎉 Mise à jour terminée !");
   
 
-app.listen(port , ()=> {
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
     console.log('Server running at 127.0.0.1:' + port)
-})
+  })
+}
+
+export default app;

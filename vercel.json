@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/cron/cleanup-commandes", "schedule": "0 */12 * * *" }
+  ]
+}

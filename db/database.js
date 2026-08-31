@@ -6,18 +6,18 @@ import mongoose from "mongoose";
 const database = 'back--CodeShop225';     
 class Database {
     static connect() {
-      mongoose.connect(process.env.MONGODB_CONNECT_URI)
+      // Évite les reconnexions multiples en environnement serverless (Vercel)
+      // où le module reste chaud entre plusieurs invocations.
+      if (mongoose.connection.readyState !== 0) return;
 
-      // updateCommandes()
- 
+      mongoose.connect(process.env.MONGODB_CONNECT_URI)
        .then(() => {
          console.log('Database connection successful')
        })
-       
        .catch(err => {
          console.error(err.message)
        })
   }
-  
+
 }
 export default Database;

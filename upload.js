@@ -1,39 +1,33 @@
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const uploadPaths = {
-  produits: path.join(__dirname, '../uploads/produits'),
-  profiles: path.join(__dirname, '../uploads/profiles'),
-  admins: path.join(__dirname, '../uploads/admins'),
-};
-
-// Créer les dossiers s’ils n’existent pas
-Object.values(uploadPaths).forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const storageProduits = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadPaths.produits),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `prod-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-  },
+// Produits (legacy — la création produit passe désormais par des URLs Cloudinary uploadées côté client)
+const storageProduits = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: 'codeshop_upload/produits',
+    resource_type: 'image',
+    public_id: `prod-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+  }),
 });
 
 export const uploadProduct = multer({ storage: storageProduits });
 
 // Profils utilisateur
-const storageProfiles = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadPaths.profiles),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `profile-${Date.now()}${ext}`);
-  },
+const storageProfiles = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: 'codeshop_upload/profiles',
+    resource_type: 'image',
+    public_id: `profile-${Date.now()}`,
+  }),
 });
 
 export const uploadUserPhoto = multer({
@@ -48,26 +42,24 @@ export const uploadUserPhoto = multer({
 });
 
 // Admins
-const storageAdmins = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadPaths.admins),
-  filename: (req, file, cb) => {
-    cb(null, `admin-${Date.now()}-${file.originalname}`);
-  },
+const storageAdmins = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: 'codeshop_upload/admins',
+    resource_type: 'image',
+    public_id: `admin-${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, '')}`,
+  }),
 });
 
 export const uploadAdminImage = multer({ storage: storageAdmins });
 
-// 👉 Dossier qui existe déjà
-const UPLOAD_DIR = path.join('uploads');   // ← rien d’autre !
-
-// ▸ Configuration minimale
-const storage = multer.diskStorage({
-  destination : UPLOAD_DIR,                        // envoie tout dans /uploads
-  filename    : (req, file, cb) => {
-    const ext = path.extname(file.originalname);   // garde l’extension
-    const name = `prod-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-    cb(null, name);
-  },
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => ({
+    folder: 'codeshop_upload/produits',
+    resource_type: 'image',
+    public_id: `prod-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  }),
 });
 
 export const uploadFields = multer({
