@@ -30,7 +30,6 @@ import User from './db/models/users.js';
 import  { uploadAdminImage } from './upload.js';
 import  { uploadUserPhoto } from './upload.js';
 import  { uploadProduct } from './upload.js';
-import server from './server.js'
 // import FormData from 'form-data';
 // import axios from "axios";
 import Comment from './db/models/comment.js';
@@ -72,10 +71,13 @@ const __dirname = path.dirname(__filename);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Static
-const uploadDir = path.join(path.resolve(), "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-app.use("/uploads", express.static(uploadDir));
+// Static (uniquement en local — filesystem en lecture seule sur Vercel,
+// les nouveaux uploads passent désormais par Cloudinary)
+if (!process.env.VERCEL) {
+  const uploadDir = path.join(path.resolve(), "uploads");
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+  app.use("/uploads", express.static(uploadDir));
+}
 
 
 cloudinary.config({
