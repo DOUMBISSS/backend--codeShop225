@@ -12,7 +12,7 @@ import Client from './db/models/Client.js';
 // import Category from './db/models/category.js';
 import moment from 'moment'; 
 import mongoose from 'mongoose';
-import nodemailer from 'nodemailer';
+import { sendEmail } from './services/brevoMailer.js';
 // import { generatePDFInvoice } from './services/pdfServices.js';
 // import PDFDocument from 'pdfkit';
 // import qr from 'qr-image';
@@ -44,6 +44,7 @@ import ArchiveArticle from './db/models/ArchiveArticle.js';
 import Message from './db/models/Message.js';
 import crypto from 'crypto';
 import Depense from './db/models/Depense.js';
+import PageView from './db/models/PageView.js';
 
 
 
@@ -153,18 +154,23 @@ export const authMiddleware = async (req, res, next) => {
 };
 
 
-const transporter = nodemailer.createTransport({
-  host: "mac42.winihost.com",
-  port: 465,
-  secure: true, // SSL
-  auth: {
-    user: process.env.SMTP_USER, // infos@codeshop225.ci
-    pass: process.env.SMTP_PASS, // 🔴 vrai mot de passe email
+// Shim compatible avec l'ancienne API nodemailer (promesse ou callback),
+// mais qui envoie réellement via l'API Brevo.
+const transporter = {
+  sendMail: (mailOptions, callback) => {
+    const promise = sendEmail({
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+      bcc: mailOptions.bcc ? [].concat(mailOptions.bcc).map(b => typeof b === 'string' ? b : b.address) : undefined,
+    });
+    if (callback) {
+      promise.then((info) => callback(null, info)).catch((err) => callback(err));
+      return;
+    }
+    return promise;
   },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+};
 export { transporter };
 
 app.post("/user/register", uploadUserPhoto.single("photo"), async (req, res) => {
@@ -976,6 +982,108 @@ app.post('/products/:id/comments', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  TRAFIC WEB (tracking + statistiques)                              */
+/* ------------------------------------------------------------------ */
+
+app.post('/track/pageview', async (req, res) => {
+  try {
+    const { path: pagePath, sessionId, role } = req.body;
+    if (!pagePath || !sessionId) {
+      return res.status(400).json({ message: 'path et sessionId requis' });
+    }
+    await PageView.create({
+      path: pagePath,
+      sessionId,
+      role: role === 'client' ? 'client' : 'anonyme',
+    });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error('Erreur tracking pageview :', err);
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+const PERIOD_TO_START_DATE = {
+  today: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; },
+  '7d': () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+  '30d': () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+  '3m': () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+  '1y': () => new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+};
+
+app.get('/track/stats', async (req, res) => {
+  try {
+    const period = PERIOD_TO_START_DATE[req.query.period] ? req.query.period : '30d';
+    const startDate = PERIOD_TO_START_DATE[period]();
+    const match = { createdAt: { $gte: startDate } };
+
+    const [topPagesAgg, roleAgg, totalAgg, sessionAgg] = await Promise.all([
+      PageView.aggregate([
+        { $match: match },
+        { $group: { _id: '$path', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 15 },
+      ]),
+      PageView.aggregate([
+        { $match: match },
+        { $group: { _id: '$role', count: { $sum: 1 } } },
+      ]),
+      PageView.countDocuments(match),
+      PageView.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: '$sessionId',
+            count: { $sum: 1 },
+            firstTs: { $min: '$createdAt' },
+            lastTs: { $max: '$createdAt' },
+          },
+        },
+      ]),
+    ]);
+
+    const pagesVues = totalAgg;
+    const sessionsUniques = sessionAgg.length;
+    const bounces = sessionAgg.filter(s => s.count === 1).length;
+    const bounceRate = sessionsUniques ? Math.round((bounces / sessionsUniques) * 100) : 0;
+    const totalDurationSec = sessionAgg.reduce(
+      (sum, s) => sum + (new Date(s.lastTs) - new Date(s.firstTs)) / 1000,
+      0
+    );
+    const avgSessionDurationSec = sessionsUniques ? Math.round(totalDurationSec / sessionsUniques) : 0;
+    const pagesPerSession = sessionsUniques ? Number((pagesVues / sessionsUniques).toFixed(1)) : 0;
+
+    const topPages = topPagesAgg.map(p => ({
+      path: p._id,
+      count: p.count,
+      percent: pagesVues ? Math.round((p.count / pagesVues) * 100) : 0,
+    }));
+
+    const activityByRole = roleAgg
+      .map(r => ({
+        role: r._id === 'client' ? 'Client' : 'Anonyme',
+        count: r.count,
+        percent: pagesVues ? Math.round((r.count / pagesVues) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    res.json({
+      period,
+      pagesVues,
+      sessionsUniques,
+      bounceRate,
+      avgSessionDurationSec,
+      pagesPerSession,
+      topPages,
+      activityByRole,
+    });
+  } catch (err) {
+    console.error('Erreur stats trafic :', err);
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 });
 
@@ -1990,30 +2098,16 @@ app.post('/email', async (req, res) => {
   const { name, email, number, content } = req.body;
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'email',
-      host:process.env.ADMIN_HOST,
-      port: 465,
-      auth: {
-        user: process.env.EMAIL_USER, // ton email
-        pass: process.env.EMAIL_PASS  // ton mot de passe d'application (pas celui de Gmail directement)
-      },
-      secure:true
-    });
-
-    const mailOptions = {
-      from: email,
-      to: 'infos@codeshop225.ci', // destinataire
+    await sendEmail({
+      to: 'infos@codeshop225.ci',
       subject: `📩 Nouveau message de ${name}`,
       html: `
         <h3>Nom : ${name}</h3>
         <h4>Email : ${email}</h4>
         <h4>Téléphone : ${number}</h4>
         <p>${content}</p>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
+      `,
+    });
     res.status(200).json({ message: 'Message envoyé avec succès !' });
   } catch (err) {
     console.error(err);
